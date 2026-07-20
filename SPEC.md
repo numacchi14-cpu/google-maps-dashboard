@@ -41,6 +41,7 @@ Google Takeout でエクスポートした「保存済みの場所」「クチ�
 - **インタラクティブマップ**（Leaflet、ダークタイル）: フィルター結果を円マーカーで表示、クリックでポップアップ（名前・県・カテゴリー・評価・コメント・Googleマップリンク）
 - **グラフ**（Chart.js）: カテゴリー比率（ドーナツ）、都道府県別件数トップ10（横棒）
 - **エクスポート**: CSV（BOM付きUTF-8、Excel対応）／JSON、いずれもダウンロード
+  - **使い分けの方針**：**JSON＝完全なバックアップ・復元用**（`categoryKey`/`myCategoryKey`/`myCategoryName`/`myCategoryColor`等キー情報ごと保持するため、手動入力の`source`やマイカテゴリー・マイ都道府県、未登録の独自マイカテゴリーまで含めて一切失わずに再読み込みできる）。**CSV＝Excelで見る・一括編集するための出力**（カテゴリー等は表示名で書き出すため人間が読みやすい一方、そのカテゴリーがまだ一度も作られていない状態での復元はできない、という構造的な制約がある。詳細は4節）。データを完全に保全したい場面（バックアップ、機種変更、リセット前退避）は必ずJSONを使うこと
 - **リセット**: 確認ダイアログ後、全データ・フィルター・マップをクリア
 
 ### 2.4 UI/UX
@@ -68,7 +69,8 @@ Google Takeout でエクスポートした「保存済みの場所」「クチ�
 - **外部CDN依存**：オフライン環境や配布用アプリ化の際は、Leaflet/Chart.js/Lucide/フォントをローカル同梱する必要あり
 - **カテゴリー分類は正規表現ベースのヒューリスティック**：厳密なNLPではないため、新しい店名パターンに弱い可能性がある（手動編集で救済可能な設計にはなっている）
 - **重複排除ロジック**は完全ではない（URL/座標/名前ベースの近似マッチ）
-- テストは `tests/`（Node標準 `node --test`、`npm test`で実行）に `classifyCategory`／`parseAppBackupJSON`／`buildManualPlaceFields`／`matchesDateRange`／`parseCoordinatePair` の分が存在（2026-07-20〜）。それ以外のロジックはまだ未カバー
+- **CSVは完全な無劣化バックアップ形式ではない**：メイン画面のCSVエクスポート（`exportCSV`）はカテゴリー・マイカテゴリーを内部キーではなく表示名で書き出す（Excelでの可読性を優先した設計）。再インポート時（`parseAppCSVBackup`）は表示名→キーの逆引きで復元するため、**既に登録済み／標準12種のカテゴリーは問題なく復元できる**が、**まだ一度も作成していない独自マイカテゴリー名だけは色情報が無く復元できず、その行は上書きなしにフォールバックする**。完全に無劣化でバックアップ・復元したい場合は必ずJSONエクスポートを使うこと（`parseAppBackupJSON`は`categoryKey`等キー情報ごと保持するためこの制約がない）
+- テストは `tests/`（Node標準 `node --test`、`npm test`で実行）に `classifyCategory`／`parseAppBackupJSON`／`buildManualPlaceFields`／`matchesDateRange`／`parseCoordinatePair`／`parseCSVRows`／`parseAppCSVBackup` の分が存在（2026-07-20〜）。それ以外のロジックはまだ未カバー
 - READMEはまだ存在しない
 
 ## 5. 今後の要望・ロードマップ
@@ -139,7 +141,13 @@ Google Takeout でエクスポートした「保存済みの場所」「クチ�
   - `resetApp()` でデータが1件以上ある場合、リセット確認の前に「先にJSONバックアップをダウンロードしますか？」の確認を追加
   - **付随して見つかった不具合を修正**：エクスポートしたJSONを再アップロードしても、座標（キー名不一致で `coordinates.latitude/longitude` が読めていなかった）と手動編集したカテゴリー・都道府県（常に自動判定で再計算されていた）が復元されないバグがあった。専用の復元パーサー（`parseAppBackupJSON`、`categoryKey` の有無で自社エクスポート形式を検出）を追加し、保存済みの値をそのまま復元するように修正
 - [x] `classifyCategory` の分類ロジックに対して、代表的なケース（ラーメン店、ホテル「〜イン」の誤判定除外など）の簡単なテストを用意する（2026-07-20実装）
-  - `tests/classifyCategory.test.js`、`tests/parseAppBackupJSON.test.js` を追加。以降 `buildManualPlaceFields.test.js`／`matchesDateRange.test.js`／`parseCoordinatePair.test.js` も追加（Node標準の `node --test`、追加npm依存なし）。`npm test` で実行可能
+  - `tests/classifyCategory.test.js`、`tests/parseAppBackupJSON.test.js` を追加。以降 `buildManualPlaceFields.test.js`／`matchesDateRange.test.js`／`parseCoordinatePair.test.js`／`parseCSVRows.test.js`／`parseAppCSVBackup.test.js` も追加（Node標準の `node --test`、追加npm依存なし）。`npm test` で実行可能
+- [x] CSVインポートが「ぐるぐる回ったまま固まって戻ってこない」不具合を修正（2026-07-20実装）
+  - 原因：クチコミ本文が複数行（引用符内改行）にまたがるCSVで、行を先に改行分割してから解析していたためレコードが分裂し `undefined` が混入 → 重複排除処理が例外を投げる → ローディング画面を閉じる処理まで届かず無限にスピナーが回っていた
+  - CSV全体を引用符を認識しながら一括パースする方式（`parseCSVRows`）に変更し、複数行のレビュー本文も1レコードとして正しく読み込むように修正。列が足りない行は`undefined`ではなく空文字にフォールバック（`csvField`）。`handleFiles`本体を`try/finally`で保護し、想定外のエラーが起きても必ずローディング画面が閉じるようにした
+- [x] CSVエクスポートを最初のアップロード画面から再読み込みすると、手動入力エントリの編集アイコンが消える（マイカテゴリー等の上書きも失われる）不具合を修正（2026-07-20実装）
+  - 原因：`parseCSVData`（汎用CSV取り込み）が「データソース」列を一切読んでおらず、再インポートしたレコードは常に`source: "CSVインポート"`として扱われていた
+  - JSONバックアップ復元と同じ考え方で、CSVヘッダーの「データソース」列の有無から自社の全件エクスポート形式を検出し、専用の復元処理（`parseAppCSVBackup`）で`source`・都道府県・マイ都道府県・カテゴリー・マイカテゴリーをそのまま復元するように修正。カテゴリー名→キーの逆引きで変換するため、未登録の独自マイカテゴリーだけは復元できない制約が残る（4節に記載）
 
 ## 6. 実装の進め方（フェーズ）
 
