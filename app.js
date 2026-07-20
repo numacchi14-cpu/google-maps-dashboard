@@ -1097,6 +1097,7 @@ function renderTable(filteredList) {
     // Prefecture Edit Column
     const prefTd = document.createElement("td");
     prefTd.className = "col-pref";
+    prefTd.setAttribute("data-label", "都道府県");
     const prefSelect = document.createElement("select");
     prefSelect.className = "editable-select";
     // Add default options
@@ -1119,6 +1120,7 @@ function renderTable(filteredList) {
     // Category Edit Column
     const catTd = document.createElement("td");
     catTd.className = "col-cat";
+    catTd.setAttribute("data-label", "カテゴリー");
     const catSelect = document.createElement("select");
     catSelect.className = "editable-select";
     Object.entries(CATEGORIES).forEach(([key, info]) => {
@@ -1139,6 +1141,7 @@ function renderTable(filteredList) {
     // Address Column
     const addrTd = document.createElement("td");
     addrTd.className = "col-address";
+    addrTd.setAttribute("data-label", "住所");
     const addrParts = splitAddress(p.address);
     if (addrParts.line2) {
       addrTd.innerHTML = `
@@ -1153,6 +1156,7 @@ function renderTable(filteredList) {
     // Rating Column
     const rateTd = document.createElement("td");
     rateTd.className = "col-rating";
+    rateTd.setAttribute("data-label", "評価");
     if (p.rating) {
       rateTd.classList.add("rating-stars");
       rateTd.innerHTML = "★".repeat(p.rating) + "☆".repeat(5 - p.rating);
@@ -1166,18 +1170,21 @@ function renderTable(filteredList) {
     // Review/Comment Column
     const commentTd = document.createElement("td");
     commentTd.className = "review-text-cell";
+    commentTd.setAttribute("data-label", "レビュー・メモ");
     commentTd.innerHTML = p.comment ? `<div class="cell-scrollable" title="${p.comment}">${p.comment}</div>` : `<div class="cell-scrollable">-</div>`;
     tr.appendChild(commentTd);
 
     // Update Date Column (derived from publishTime / date property)
     const updTd = document.createElement("td");
     updTd.className = "col-upd-date";
+    updTd.setAttribute("data-label", "最終更新日");
     updTd.textContent = p.publishTime || "-";
     tr.appendChild(updTd);
 
     // Actions Column (Delete, Center Map)
     const actTd = document.createElement("td");
     actTd.className = "col-actions";
+    actTd.setAttribute("data-label", "操作");
     actTd.innerHTML = `
       <div style="display:flex;gap:8px;">
         ${p.lat && p.lng ? `<button class="btn" style="padding:4px 8px;font-size:0.75rem;" title="地図の中心に表示" class="btn-locate"><i data-lucide="map-pin" style="width:12px;height:12px;"></i></button>` : ''}
