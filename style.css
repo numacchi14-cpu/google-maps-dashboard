@@ -225,6 +225,10 @@ header {
   background: rgba(255, 255, 255, 0.03);
 }
 
+.manual-add-trigger-container {
+  margin-top: 1rem;
+}
+
 /* Dashboard Layout (Grid) */
 .dashboard-grid {
   display: flex;
@@ -407,6 +411,35 @@ header {
   outline: none;
 }
 
+/* 最終更新日の期間フィルター */
+.date-range-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.date-input {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  cursor: pointer;
+  color-scheme: dark;
+}
+
+.date-input:focus {
+  border-color: var(--accent-primary);
+  outline: none;
+}
+
+.date-range-sep {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
 /* Actions Menu */
 .action-buttons {
   display: flex;
@@ -543,7 +576,7 @@ header {
 
 .chart-container {
   position: relative;
-  height: 280px;
+  height: 320px;
   width: 100%;
 }
 
@@ -672,6 +705,11 @@ tr:hover td {
   background: var(--bg-tertiary);
 }
 
+/* マイ都道府県/マイカテゴリーで手動上書き中のセルを視覚的に区別する */
+.editable-select.has-override {
+  border-left: 3px solid var(--accent-primary);
+}
+
 /* List empty state */
 .empty-state {
   display: flex;
@@ -763,6 +801,181 @@ tr:hover td {
 .loading-progress {
   color: var(--text-secondary);
   font-size: 0.9rem;
+}
+
+/* Category Settings Modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(11, 15, 25, 0.75);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9998;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  padding: 1rem;
+}
+
+.modal-overlay.active {
+  opacity: 1;
+  pointer-events: all;
+}
+
+.modal-card {
+  width: 100%;
+  max-width: 480px;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.modal-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0.25rem;
+  display: flex;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.modal-close-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.modal-desc {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.add-category-form {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.add-category-form .search-input {
+  padding-left: 1rem;
+}
+
+.add-category-form input[type="color"] {
+  width: 44px;
+  height: 42px;
+  padding: 2px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.custom-category-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.custom-category-empty {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-align: center;
+  padding: 1rem 0;
+}
+
+.custom-category-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0.6rem 0.85rem;
+}
+
+.custom-category-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.custom-category-name {
+  flex: 1;
+  font-size: 0.9rem;
+}
+
+.custom-category-count {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.custom-category-delete {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0.25rem;
+  display: flex;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.custom-category-delete:hover {
+  color: var(--danger);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* Manual Add (クチコミを手動で追加) Modal */
+.manual-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.manual-add-form .search-input {
+  padding-left: 1rem;
+}
+
+.manual-add-row {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.manual-add-row .select-input,
+.manual-add-row .date-input {
+  flex: 1;
+}
+
+.manual-add-textarea {
+  resize: vertical;
+  min-height: 70px;
+  font-family: var(--font-body);
+  line-height: 1.5;
+}
+
+.modal-divider {
+  border: none;
+  border-top: 1px solid var(--border-color);
+  margin: 0;
+}
+
+.manual-csv-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.manual-csv-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
 }
 
 /* Responsive adjustments */

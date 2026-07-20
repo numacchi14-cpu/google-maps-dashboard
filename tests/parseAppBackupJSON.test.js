@@ -3,7 +3,7 @@ global.document = { addEventListener() {} };
 
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { parseAppBackupJSON } = require("../app.js");
+const { parseAppBackupJSON, getAllCategories, customCategories } = require("../app.js");
 
 test("エクスポート形式のレコードをカテゴリー・都道府県を再計算せずそのまま復元する", () => {
   const backup = [{
@@ -56,4 +56,53 @@ test("prefectureや座標が欠けている場合は既定値にフォールバ�
   assert.equal(place.prefecture, "その他・海外");
   assert.equal(place.lat, null);
   assert.equal(place.lng, null);
+});
+
+test("マイ都道府県/マイカテゴリー（手動上書き）をGoogle連動側と別軸で復元する", () => {
+  const backup = [{
+    name: "手動でマイカテゴリーを設定した店",
+    prefecture: "福岡県",
+    categoryKey: "gourmet_ramen",
+    myPrefecture: "熊本県",
+    myCategoryKey: "gourmet_other",
+    myCategoryName: "グルメ（その他）",
+    comment: ""
+  }];
+
+  const [place] = parseAppBackupJSON(backup);
+  assert.equal(place.prefecture, "福岡県");
+  assert.equal(place.category, "gourmet_ramen");
+  assert.equal(place.myPrefecture, "熊本県");
+  assert.equal(place.myCategory, "gourmet_other");
+});
+
+test("マイ都道府県/マイカテゴリーが未設定の場合はnullに復元する（不正なmyCategoryKeyも同様）", () => {
+  const backup = [{
+    name: "上書きなしの店",
+    prefecture: "福岡県",
+    categoryKey: "gourmet_ramen",
+    myCategoryKey: "not_a_real_category",
+    comment: ""
+  }];
+
+  const [place] = parseAppBackupJSON(backup);
+  assert.equal(place.myPrefecture, null);
+  assert.equal(place.myCategory, null);
+});
+
+test("バックアップが参照する自作マイカテゴリー（標準の12種にないキー）を再登録して復元する", () => {
+  const backup = [{
+    name: "自作カテゴリーを付けた店",
+    prefecture: "東京都",
+    categoryKey: "gourmet_cafe",
+    myCategoryKey: "custom_1234_abcde",
+    myCategoryName: "よく行く店",
+    myCategoryColor: "#f59e0b",
+    comment: ""
+  }];
+
+  const [place] = parseAppBackupJSON(backup);
+  assert.equal(place.myCategory, "custom_1234_abcde");
+  assert.equal(getAllCategories()["custom_1234_abcde"].name, "よく行く店");
+  assert.equal(customCategories["custom_1234_abcde"].color, "#f59e0b");
 });

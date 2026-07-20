@@ -22,6 +22,12 @@
         <p>クチコミや保存済みの場所のデータを読み込み、県別・業種別にビジュアライズします</p>
       </div>
       <div class="action-buttons" id="header-actions" style="display: none;">
+        <button class="btn" id="btn-manual-add" type="button">
+          <i data-lucide="plus"></i> クチコミを手動で追加
+        </button>
+        <button class="btn" id="btn-category-settings" type="button">
+          <i data-lucide="settings"></i> マイカテゴリー設定
+        </button>
         <button class="btn" id="btn-export-csv">
           <i data-lucide="download"></i> CSVエクスポート
         </button>
@@ -55,6 +61,11 @@
         <div class="sample-trigger-container">
           <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.5rem;">または、サンプルデータで試してみる：</p>
           <button class="sample-btn" id="load-sample-btn">サンプルデータをロード</button>
+        </div>
+
+        <div class="manual-add-trigger-container">
+          <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.5rem;">Takeoutに含まれていないクチコミ（600件の上限などで漏れたもの）は、手動で追加できます：</p>
+          <button class="btn" id="btn-manual-add-empty" type="button"><i data-lucide="plus"></i> クチコミを手動で追加</button>
         </div>
       </div>
     </div>
@@ -108,6 +119,17 @@
             <select id="filter-category" class="select-input">
               <option value="">すべてのカテゴリー</option>
             </select>
+            <select id="filter-rating" class="select-input" title="評価で絞り込み">
+              <option value="">すべての評価</option>
+              <option value="3">★3以上</option>
+              <option value="4">★4以上</option>
+              <option value="5">★5のみ</option>
+            </select>
+            <div class="date-range-wrapper" title="最終更新日で絞り込み">
+              <input type="date" id="filter-date-from" class="date-input" aria-label="最終更新日（開始）">
+              <span class="date-range-sep">〜</span>
+              <input type="date" id="filter-date-to" class="date-input" aria-label="最終更新日（終了）">
+            </div>
           </div>
         </div>
 
@@ -177,6 +199,74 @@
     <div class="spinner"></div>
     <div class="loading-text">ファイルを解析中...</div>
     <div class="loading-progress" id="loading-progress">データを読み込んでいます</div>
+  </div>
+
+  <!-- Manual Add Modal -->
+  <div class="modal-overlay" id="manual-add-overlay">
+    <div class="glass-card modal-card">
+      <div class="card-header">
+        <h3 class="card-title" id="manual-add-title"><i data-lucide="plus"></i> クチコミを手動で追加</h3>
+        <button class="modal-close-btn" id="manual-add-close" type="button" aria-label="閉じる">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <p class="modal-desc">
+        Google Takeoutの口コミエクスポートには件数の上限があり、漏れてしまったクチコミが出ることがあります。ここで直接追加すれば、他のデータと同じように一覧・グラフ・地図に反映されます（保存後、都道府県・カテゴリーの手動編集も可能です）。
+      </p>
+      <form id="manual-add-form" class="manual-add-form">
+        <input type="text" id="manual-name" class="search-input" placeholder="スポット名（必須）" maxlength="100" required>
+        <input type="text" id="manual-address" class="search-input" placeholder="住所（任意。都道府県の自動判定に使われます）">
+        <div class="manual-add-row">
+          <select id="manual-rating" class="select-input" title="評価">
+            <option value="">評価（任意）</option>
+            <option value="5">★5</option>
+            <option value="4">★4</option>
+            <option value="3">★3</option>
+            <option value="2">★2</option>
+            <option value="1">★1</option>
+          </select>
+          <input type="date" id="manual-date" class="date-input" title="投稿日（任意）">
+        </div>
+        <textarea id="manual-comment" class="search-input manual-add-textarea" placeholder="クチコミ本文（任意）" rows="3"></textarea>
+        <input type="text" id="manual-url" class="search-input" placeholder="Googleマップのリンク（任意）">
+        <input type="text" id="manual-coords" class="search-input" placeholder="緯度,経度（任意。地図に表示する場合。例: 35.6586, 139.7454）">
+        <button type="submit" class="btn btn-primary" id="manual-add-submit"><i data-lucide="plus"></i> 追加する</button>
+      </form>
+
+      <hr class="modal-divider">
+
+      <div class="manual-csv-section">
+        <p class="modal-desc">
+          複数件をまとめて編集したい場合は、手動入力データをCSVでエクスポート→Excel等で編集→再度読み込む、という使い方もできます。「ID」列が既存データと一致する行は上書き、空欄の行は新規追加されます。
+        </p>
+        <div class="manual-csv-actions">
+          <button class="btn" id="btn-manual-csv-export" type="button"><i data-lucide="download"></i> CSVでエクスポート</button>
+          <button class="btn" id="btn-manual-csv-import" type="button"><i data-lucide="upload"></i> CSVから読み込む</button>
+          <input type="file" id="manual-csv-input" accept=".csv" style="display:none;">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Category Settings Modal -->
+  <div class="modal-overlay" id="category-settings-overlay">
+    <div class="glass-card modal-card">
+      <div class="card-header">
+        <h3 class="card-title"><i data-lucide="settings"></i> マイカテゴリーの管理</h3>
+        <button class="modal-close-btn" id="category-settings-close" type="button" aria-label="閉じる">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <p class="modal-desc">
+        Googleの自動判定（12種類）に加えて、自分だけのカテゴリーを作成できます。作成したカテゴリーは各スポットの「カテゴリー」欄でマイカテゴリーとして選択でき、フィルター・グラフにも反映されます。
+      </p>
+      <form id="add-category-form" class="add-category-form">
+        <input type="text" id="new-category-name" class="search-input" placeholder="新しいカテゴリー名（例: よく行く店）" maxlength="20" title="新しいカテゴリー名" required>
+        <input type="color" id="new-category-color" value="#3b82f6" title="カテゴリーの色">
+        <button type="submit" class="btn btn-primary"><i data-lucide="plus"></i> 追加</button>
+      </form>
+      <div id="custom-category-list" class="custom-category-list"></div>
+    </div>
   </div>
 
   <!-- Scripts -->

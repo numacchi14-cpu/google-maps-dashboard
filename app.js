@@ -6,6 +6,11 @@ let categoryChart = null;
 let prefectureChart = null;
 let currentSortColumn = 'name';
 let currentSortDirection = 'asc';
+// User-created マイカテゴリー定義, keyed like CATEGORIES: { [key]: { name, color, custom: true } }.
+// Kept separate from CATEGORIES because that constant represents the fixed Google連動 taxonomy.
+let customCategories = {};
+// Set to a place's id while the manual-add modal is open in "edit" mode; null when adding new.
+let editingManualPlaceId = null;
 
 // Constants
 const PREFECTURES = [
@@ -84,6 +89,36 @@ const CATEGORIES = {
   "other": { name: "その他", color: "#94a3b8", keywords: [] }
 };
 
+// Effective prefecture/category: the user's own override ("マイ都道府県"/"マイカテゴリー")
+// takes precedence over the auto-detected ("Google連動") value when set.
+// This keeps the two axes structurally separate so re-imports can refresh the
+// Google連動 side without ever clobbering a manual edit.
+function getEffectivePrefecture(p) {
+  return p.myPrefecture || p.prefecture;
+}
+function getEffectiveCategory(p) {
+  return p.myCategory || p.category;
+}
+
+// Built-in (Google連動) categories plus any user-created マイカテゴリー, merged for
+// lookup/display purposes. myCategory may reference either.
+function getAllCategories() {
+  return { ...CATEGORIES, ...customCategories };
+}
+
+function generateCustomCategoryKey() {
+  return `custom_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+}
+
+// Register a custom category if not already known (used both when the user
+// creates one via the settings modal, and when restoring one referenced by
+// a JSON backup that was exported from a different/earlier session).
+function registerCustomCategory(key, name, color) {
+  if (!customCategories[key]) {
+    customCategories[key] = { name: name, color: color || "#6b7280", custom: true };
+  }
+}
+
 // Initialize UI and Events
 document.addEventListener("DOMContentLoaded", () => {
   // Lucide Icons
@@ -118,9 +153,24 @@ function setupEventListeners() {
   const searchBox = document.getElementById("search-box");
   const filterPref = document.getElementById("filter-prefecture");
   const filterCat = document.getElementById("filter-category");
+  const filterRating = document.getElementById("filter-rating");
+  const filterDateFrom = document.getElementById("filter-date-from");
+  const filterDateTo = document.getElementById("filter-date-to");
   const btnExportCsv = document.getElementById("btn-export-csv");
   const btnExportJson = document.getElementById("btn-export-json");
   const btnReset = document.getElementById("btn-reset");
+  const btnCategorySettings = document.getElementById("btn-category-settings");
+  const categorySettingsOverlay = document.getElementById("category-settings-overlay");
+  const categorySettingsClose = document.getElementById("category-settings-close");
+  const addCategoryForm = document.getElementById("add-category-form");
+  const btnManualAdd = document.getElementById("btn-manual-add");
+  const btnManualAddEmpty = document.getElementById("btn-manual-add-empty");
+  const manualAddOverlay = document.getElementById("manual-add-overlay");
+  const manualAddClose = document.getElementById("manual-add-close");
+  const manualAddForm = document.getElementById("manual-add-form");
+  const btnManualCsvExport = document.getElementById("btn-manual-csv-export");
+  const btnManualCsvImport = document.getElementById("btn-manual-csv-import");
+  const manualCsvInput = document.getElementById("manual-csv-input");
 
   // Select file trigger
   selectFileBtn.addEventListener("click", () => fileInput.click());
@@ -149,6 +199,9 @@ function setupEventListeners() {
   searchBox.addEventListener("input", filterAndRender);
   filterPref.addEventListener("change", filterAndRender);
   filterCat.addEventListener("change", filterAndRender);
+  filterRating.addEventListener("change", filterAndRender);
+  filterDateFrom.addEventListener("change", filterAndRender);
+  filterDateTo.addEventListener("change", filterAndRender);
 
   // Sorting
   document.querySelectorAll("th[data-sort]").forEach(th => {
@@ -179,6 +232,284 @@ function setupEventListeners() {
   btnExportCsv.addEventListener("click", exportCSV);
   btnExportJson.addEventListener("click", exportJSON);
   btnReset.addEventListener("click", resetApp);
+
+  // マイカテゴリー設定 (custom category management modal)
+  btnCategorySettings.addEventListener("click", openCategorySettings);
+  categorySettingsClose.addEventListener("click", closeCategorySettings);
+  categorySettingsOverlay.addEventListener("click", (e) => {
+    if (e.target === categorySettingsOverlay) closeCategorySettings();
+  });
+  addCategoryForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const nameInput = document.getElementById("new-category-name");
+    const colorInput = document.getElementById("new-category-color");
+    const name = nameInput.value.trim();
+    if (!name) return;
+
+    const isDuplicate = Object.values(customCategories).some(c => c.name === name);
+    if (isDuplicate) {
+      alert("同じ名前のマイカテゴリーが既にあります。");
+      return;
+    }
+
+    const key = generateCustomCategoryKey();
+    customCategories[key] = { name: name, color: colorInput.value, custom: true };
+    nameInput.value = "";
+    colorInput.value = "#3b82f6";
+
+    renderCustomCategoryList();
+    setupDropdownFilters();
+    filterAndRender();
+  });
+
+  // クチコミの手動追加 (Takeout's ~600-item export cap can leave reviews out)
+  btnManualAdd.addEventListener("click", () => openManualAdd());
+  btnManualAddEmpty.addEventListener("click", () => openManualAdd());
+  manualAddClose.addEventListener("click", closeManualAdd);
+  manualAddOverlay.addEventListener("click", (e) => {
+    if (e.target === manualAddOverlay) closeManualAdd();
+  });
+  manualAddForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const name = document.getElementById("manual-name").value.trim();
+    if (!name) return;
+
+    const ratingVal = document.getElementById("manual-rating").value;
+    const dateVal = document.getElementById("manual-date").value;
+    const input = {
+      name: name,
+      address: document.getElementById("manual-address").value.trim(),
+      rating: ratingVal ? parseInt(ratingVal) : null,
+      comment: document.getElementById("manual-comment").value.trim(),
+      url: document.getElementById("manual-url").value.trim(),
+      publishTime: dateVal ? dateVal.replace(/-/g, "/") : "",
+      coordinateText: document.getElementById("manual-coords").value
+    };
+
+    if (editingManualPlaceId) {
+      const place = places.find(p => p.id === editingManualPlaceId);
+      if (place) {
+        updateManualPlaceFields(place, input);
+        setupDropdownFilters();
+        filterAndRender();
+      }
+      closeManualAdd();
+    } else {
+      const wasEmpty = places.length === 0;
+      addManualPlace(input);
+      closeManualAdd();
+      if (wasEmpty) showDashboard();
+    }
+  });
+
+  // 手動入力データのCSVエクスポート／インポート（まとめて編集したい場合用）
+  btnManualCsvExport.addEventListener("click", exportManualCSV);
+  btnManualCsvImport.addEventListener("click", () => manualCsvInput.click());
+  manualCsvInput.addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    await importManualCSV(file);
+    manualCsvInput.value = "";
+  });
+}
+
+// Open/close the マイカテゴリー management modal
+function openCategorySettings() {
+  renderCustomCategoryList();
+  document.getElementById("category-settings-overlay").classList.add("active");
+}
+
+function closeCategorySettings() {
+  document.getElementById("category-settings-overlay").classList.remove("active");
+}
+
+// Open the manual クチコミ add/edit modal. Pass an existing place to edit it
+// in place; omit it to add a brand new manual entry.
+function openManualAdd(place) {
+  const form = document.getElementById("manual-add-form");
+  const title = document.getElementById("manual-add-title");
+  const submitBtn = document.getElementById("manual-add-submit");
+
+  if (place) {
+    editingManualPlaceId = place.id;
+    document.getElementById("manual-name").value = place.name || "";
+    document.getElementById("manual-address").value = place.address || "";
+    document.getElementById("manual-rating").value = place.rating || "";
+    document.getElementById("manual-comment").value = place.comment || "";
+    document.getElementById("manual-url").value = place.url || "";
+    document.getElementById("manual-date").value = place.publishTime ? place.publishTime.replace(/\//g, "-") : "";
+    document.getElementById("manual-coords").value = (place.lat && place.lng) ? `${place.lat}, ${place.lng}` : "";
+    title.textContent = "クチコミを編集";
+    submitBtn.innerHTML = '<i data-lucide="save"></i> 保存する';
+  } else {
+    editingManualPlaceId = null;
+    form.reset();
+    title.textContent = "クチコミを手動で追加";
+    submitBtn.innerHTML = '<i data-lucide="plus"></i> 追加する';
+  }
+  lucide.createIcons();
+
+  document.getElementById("manual-add-overlay").classList.add("active");
+  document.getElementById("manual-name").focus();
+}
+
+function closeManualAdd() {
+  document.getElementById("manual-add-overlay").classList.remove("active");
+  editingManualPlaceId = null;
+}
+
+// Export/import 手動入力-only records as CSV so they can be bulk-edited in a
+// spreadsheet and re-imported. A matching ID updates that record in place; a
+// blank/unmatched ID adds it as a new manual entry.
+function exportManualCSV() {
+  const manualPlaces = places.filter(p => p.source === "手動入力");
+  if (manualPlaces.length === 0) {
+    alert("手動入力したデータがありません。");
+    return;
+  }
+
+  const csvRows = [];
+  csvRows.push(["ID", "スポット名", "住所", "評価", "コメント", "投稿日", "Googleマップリンク", "緯度経度"].join(","));
+  manualPlaces.forEach(p => {
+    csvRows.push([
+      escapeCSVValue(p.id),
+      escapeCSVValue(p.name),
+      escapeCSVValue(p.address),
+      escapeCSVValue(p.rating ? p.rating.toString() : ""),
+      escapeCSVValue(p.comment),
+      escapeCSVValue(p.publishTime || ""),
+      escapeCSVValue(p.url),
+      escapeCSVValue(p.lat && p.lng ? `${p.lat}, ${p.lng}` : "")
+    ].join(","));
+  });
+
+  const csvContent = "\uFEFF" + csvRows.join("\n");
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", `manual_entries_${Date.now()}.csv`);
+  link.style.visibility = 'hidden';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+async function importManualCSV(file) {
+  let text;
+  try {
+    text = await readFileAsText(file);
+  } catch (e) {
+    alert(`ファイル「${file.name}」の読み込み中にエラーが発生しました。`);
+    return;
+  }
+
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) {
+    alert("有効なデータが見つかりませんでした。");
+    return;
+  }
+
+  const headers = parseCSVLine(lines[0]);
+  const idIdx = headers.findIndex(h => /^id$/i.test(h.trim()));
+  const nameIdx = headers.findIndex(h => /name|title|名前|スポット名/i.test(h));
+  const addressIdx = headers.findIndex(h => /address|住所/i.test(h));
+  const ratingIdx = headers.findIndex(h => /rating|評価/i.test(h));
+  const commentIdx = headers.findIndex(h => /comment|コメント|クチコミ|レビュー/i.test(h));
+  const dateIdx = headers.findIndex(h => /date|投稿日/i.test(h));
+  const urlIdx = headers.findIndex(h => /url|link|リンク/i.test(h));
+  const coordIdx = headers.findIndex(h => /緯度経度|座標|coordinates|lat.?lng/i.test(h));
+
+  if (nameIdx === -1) {
+    alert("CSVに「スポット名」の列が見つかりませんでした。");
+    return;
+  }
+
+  const wasEmpty = places.length === 0;
+  let updatedCount = 0;
+  let addedCount = 0;
+
+  for (let i = 1; i < lines.length; i++) {
+    const row = parseCSVLine(lines[i]);
+    const name = nameIdx !== -1 ? row[nameIdx] : "";
+    if (!name) continue;
+
+    const input = {
+      name: name,
+      address: addressIdx !== -1 ? row[addressIdx] : "",
+      rating: ratingIdx !== -1 && row[ratingIdx] ? parseRatingValue(row[ratingIdx]) : null,
+      comment: commentIdx !== -1 ? row[commentIdx] : "",
+      url: urlIdx !== -1 ? row[urlIdx] : "",
+      publishTime: dateIdx !== -1 && row[dateIdx] ? formatDateString(row[dateIdx]) : "",
+      coordinateText: coordIdx !== -1 ? row[coordIdx] : ""
+    };
+
+    const id = idIdx !== -1 ? row[idIdx].trim() : "";
+    const existing = id ? places.find(p => p.id === id) : null;
+
+    if (existing) {
+      updateManualPlaceFields(existing, input);
+      updatedCount++;
+    } else {
+      addManualPlace(input);
+      addedCount++;
+    }
+  }
+
+  setupDropdownFilters();
+  filterAndRender();
+  if (wasEmpty && places.length > 0) showDashboard();
+
+  alert(`${addedCount}件を新規追加、${updatedCount}件を更新しました。`);
+}
+
+// Render the list of user-created categories inside the settings modal
+function renderCustomCategoryList() {
+  const container = document.getElementById("custom-category-list");
+  const keys = Object.keys(customCategories);
+
+  if (keys.length === 0) {
+    container.innerHTML = '<div class="custom-category-empty">まだマイカテゴリーはありません</div>';
+    return;
+  }
+
+  container.innerHTML = "";
+  keys.forEach(key => {
+    const info = customCategories[key];
+    const count = places.filter(p => p.myCategory === key).length;
+
+    const row = document.createElement("div");
+    row.className = "custom-category-item";
+    row.innerHTML = `
+      <span class="custom-category-swatch" style="background:${info.color};"></span>
+      <span class="custom-category-name">${info.name}</span>
+      <span class="custom-category-count">${count}件</span>
+      <button class="custom-category-delete" type="button" title="削除"><i data-lucide="trash-2" style="width:14px;height:14px;"></i></button>
+    `;
+    row.querySelector(".custom-category-delete").addEventListener("click", () => deleteCustomCategory(key));
+    container.appendChild(row);
+  });
+
+  lucide.createIcons();
+}
+
+// Delete a custom category, reverting any place using it back to auto-detection
+function deleteCustomCategory(key) {
+  const info = customCategories[key];
+  if (!info) return;
+
+  const count = places.filter(p => p.myCategory === key).length;
+  const message = count > 0
+    ? `「${info.name}」は${count}件のスポットで使われています。削除するとそれらのスポットは自動判定のカテゴリーに戻ります。削除しますか？`
+    : `「${info.name}」を削除しますか？`;
+  if (!confirm(message)) return;
+
+  places.forEach(p => { if (p.myCategory === key) p.myCategory = null; });
+  delete customCategories[key];
+
+  renderCustomCategoryList();
+  setupDropdownFilters();
+  filterAndRender();
 }
 
 // Reset App State
@@ -191,18 +522,22 @@ function resetApp() {
 
   if (confirm("データをリセットしますか？")) {
     places = [];
+    customCategories = {};
     document.getElementById("upload-section").style.display = "block";
     document.getElementById("dashboard-section").classList.remove("visible");
     setTimeout(() => {
       document.getElementById("dashboard-section").style.display = "none";
     }, 500);
     document.getElementById("header-actions").style.display = "none";
-    
+
     // Clear filters
     document.getElementById("search-box").value = "";
     document.getElementById("filter-prefecture").value = "";
     document.getElementById("filter-category").value = "";
-    
+    document.getElementById("filter-rating").value = "";
+    document.getElementById("filter-date-from").value = "";
+    document.getElementById("filter-date-to").value = "";
+
     // Clear map markers
     clearMapMarkers();
     map.setView([36.2048, 138.2529], 5);
@@ -235,26 +570,30 @@ async function handleFiles(files) {
     places = places.concat(newPlaces);
     // Deduplicate based on coordinates or URL or name
     places = deduplicatePlaces(places);
-    
-    // Initialize Dashboard UI
+
     setupDropdownFilters();
     filterAndRender();
-    
-    document.getElementById("upload-section").style.display = "none";
-    const dash = document.getElementById("dashboard-section");
-    dash.style.display = "grid";
-    setTimeout(() => {
-      dash.classList.add("visible");
-      // Force leaflet sizing recalculation
-      map.invalidateSize();
-      fitMapToMarkers();
-    }, 50);
-    document.getElementById("header-actions").style.display = "flex";
+    showDashboard();
   } else {
     alert("有効なGoogle Mapsデータが検出されませんでした。");
   }
-  
+
   showLoading(false);
+}
+
+// Switch from the upload screen to the loaded dashboard UI. Used both after a
+// file import and after adding the first manual entry.
+function showDashboard() {
+  document.getElementById("upload-section").style.display = "none";
+  const dash = document.getElementById("dashboard-section");
+  dash.style.display = "grid";
+  setTimeout(() => {
+    dash.classList.add("visible");
+    // Force leaflet sizing recalculation
+    map.invalidateSize();
+    fitMapToMarkers();
+  }, 50);
+  document.getElementById("header-actions").style.display = "flex";
 }
 
 // Helper to read file as text
@@ -568,6 +907,8 @@ function parseSavedPlacesGeoJSON(geojson) {
       lng: parseFloat(lng),
       prefecture: pref,
       category: cat,
+      myPrefecture: null,
+      myCategory: null,
       rating: rating,
       comment: comment,
       url: url,
@@ -630,6 +971,8 @@ function parseReviewsJSON(json) {
       lng: lng,
       prefecture: pref,
       category: cat,
+      myPrefecture: null,
+      myCategory: null,
       rating: rating,
       comment: comment,
       url: url,
@@ -648,6 +991,17 @@ function parseAppBackupJSON(json) {
     const coords = item.coordinates || {};
     const category = CATEGORIES[item.categoryKey] ? item.categoryKey : classifyCategory(item.name || "", item.comment || "");
 
+    // myCategoryKey may point at a built-in category or a マイカテゴリー the user made
+    // in an earlier session; re-register the latter so it reappears in the settings
+    // modal/dropdowns instead of just silently applying to this one record.
+    let myCategory = null;
+    if (CATEGORIES[item.myCategoryKey]) {
+      myCategory = item.myCategoryKey;
+    } else if (item.myCategoryKey && item.myCategoryName) {
+      registerCustomCategory(item.myCategoryKey, item.myCategoryName, item.myCategoryColor);
+      myCategory = item.myCategoryKey;
+    }
+
     return {
       id: `backup-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 5)}`,
       name: item.name || "不明なスポット",
@@ -656,6 +1010,8 @@ function parseAppBackupJSON(json) {
       lng: coords.longitude !== undefined ? parseFloat(coords.longitude) : null,
       prefecture: item.prefecture || "その他・海外",
       category: category,
+      myPrefecture: item.myPrefecture || null,
+      myCategory: myCategory,
       rating: item.rating ?? null,
       comment: item.comment || "",
       url: item.googleMapsUrl || "",
@@ -711,6 +1067,8 @@ function parseCSVData(csvText) {
       lng: lng && !isNaN(lng) ? lng : null,
       prefecture: pref,
       category: cat,
+      myPrefecture: null,
+      myCategory: null,
       rating: rating,
       comment: comment,
       url: url,
@@ -748,6 +1106,68 @@ function parseCSVLine(text) {
   return result;
 }
 
+// Parse a coordinate pair pasted in the "lat, lng" form Google Maps shows in
+// its URL/share sheet (e.g. "35.6586, 139.7454"). Returns { lat, lng } or null.
+function parseCoordinatePair(text) {
+  if (!text) return null;
+  const match = text.trim().match(/^(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)$/);
+  if (!match) return null;
+  return { lat: parseFloat(match[1]), lng: parseFloat(match[2]) };
+}
+
+// Compute the hand-entered/derived fields shared by "add a new manual place"
+// and "edit an existing place's manually-entered fields" (id/source/myカテゴリー
+// axis are intentionally excluded here since those differ between add vs. edit).
+function buildManualPlaceFields(input) {
+  const coords = parseCoordinatePair(input.coordinateText);
+  const lat = coords ? coords.lat : null;
+  const lng = coords ? coords.lng : null;
+  const address = input.address || "";
+  const comment = input.comment || "";
+
+  return {
+    name: input.name,
+    address: address,
+    lat: lat,
+    lng: lng,
+    prefecture: extractPrefecture(address, input.name, lat, lng),
+    category: classifyCategory(input.name, comment),
+    rating: input.rating || null,
+    comment: comment,
+    url: input.url || "",
+    publishTime: input.publishTime || "",
+    updateTime: input.publishTime || ""
+  };
+}
+
+// Add a single hand-entered place (e.g. a review posted on Google Maps that
+// Takeout didn't capture, such as when the 600-review export cap is hit).
+// Runs through the same classify/dedup pipeline as any imported record so it
+// merges into an existing entry instead of creating a near-duplicate.
+function addManualPlace(input) {
+  const newPlace = {
+    id: `manual-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+    ...buildManualPlaceFields(input),
+    myPrefecture: null,
+    myCategory: null,
+    source: "手動入力"
+  };
+
+  places = places.concat([newPlace]);
+  places = deduplicatePlaces(places);
+
+  setupDropdownFilters();
+  filterAndRender();
+}
+
+// Apply edits to an existing place's hand-entered fields (used by the
+// single-entry edit form and by re-importing a 手動入力 CSV whose ID matches
+// an existing record). マイ都道府県/マイカテゴリーは触れない — only the
+// Google連動 axis (prefecture/category) is recomputed from the edited name/address.
+function updateManualPlaceFields(place, input) {
+  Object.assign(place, buildManualPlaceFields(input));
+}
+
 // Deduplicate places list
 function deduplicatePlaces(list) {
   const unique = [];
@@ -778,6 +1198,10 @@ function deduplicatePlaces(list) {
         if (!existing.comment && item.comment) existing.comment = item.comment;
         if (!existing.rating && item.rating) existing.rating = item.rating;
         if (!existing.address && item.address) existing.address = item.address;
+        // Never let a fresh import overwrite a manual マイ都道府県/マイカテゴリー override;
+        // only fill it in if the existing record doesn't have one yet.
+        if (!existing.myPrefecture && item.myPrefecture) existing.myPrefecture = item.myPrefecture;
+        if (!existing.myCategory && item.myCategory) existing.myCategory = item.myCategory;
       }
     }
   });
@@ -936,7 +1360,7 @@ function setupDropdownFilters() {
 
   // Prefectures set
   const loadedPrefs = new Set();
-  places.forEach(p => loadedPrefs.add(p.prefecture));
+  places.forEach(p => loadedPrefs.add(getEffectivePrefecture(p)));
   
   // Sort them
   const sortedPrefs = Array.from(loadedPrefs).sort((a, b) => {
@@ -950,14 +1374,14 @@ function setupDropdownFilters() {
   sortedPrefs.forEach(pref => {
     const opt = document.createElement("option");
     opt.value = pref;
-    opt.textContent = `${pref} (${places.filter(p => p.prefecture === pref).length})`;
+    opt.textContent = `${pref} (${places.filter(p => getEffectivePrefecture(p) === pref).length})`;
     filterPref.appendChild(opt);
   });
 
-  // Populate Categories dropdown
+  // Populate Categories dropdown (built-in + マイカテゴリー)
   filterCat.innerHTML = '<option value="">すべてのカテゴリー</option>';
-  Object.entries(CATEGORIES).forEach(([key, info]) => {
-    const count = places.filter(p => p.category === key).length;
+  Object.entries(getAllCategories()).forEach(([key, info]) => {
+    const count = places.filter(p => getEffectiveCategory(p) === key).length;
     if (count > 0 || key === "other") {
       const opt = document.createElement("option");
       opt.value = key;
@@ -972,20 +1396,39 @@ function setupDropdownFilters() {
 }
 
 // Filter, Sort, and Render UI
+// Check whether a "YYYY/MM/DD" date string (the app's stored format, see
+// formatDateString) falls within an inclusive range given as "YYYY-MM-DD"
+// strings from <input type="date">. Both are zero-padded, so a straight
+// string compare after normalizing the separator is enough (no Date parsing,
+// no timezone drift).
+function matchesDateRange(dateStr, fromStr, toStr) {
+  if (!fromStr && !toStr) return true;
+  if (!dateStr) return false;
+  const normalized = dateStr.replace(/\//g, "-");
+  if (fromStr && normalized < fromStr) return false;
+  if (toStr && normalized > toStr) return false;
+  return true;
+}
+
 function filterAndRender() {
   const searchVal = document.getElementById("search-box").value.toLowerCase();
   const prefVal = document.getElementById("filter-prefecture").value;
   const catVal = document.getElementById("filter-category").value;
+  const minRating = document.getElementById("filter-rating").value ? parseInt(document.getElementById("filter-rating").value) : null;
+  const dateFrom = document.getElementById("filter-date-from").value; // "YYYY-MM-DD" or ""
+  const dateTo = document.getElementById("filter-date-to").value;
 
   // Filter
   let filtered = places.filter(p => {
-    const matchSearch = !searchVal || 
-                        p.name.toLowerCase().includes(searchVal) || 
-                        p.address.toLowerCase().includes(searchVal) || 
+    const matchSearch = !searchVal ||
+                        p.name.toLowerCase().includes(searchVal) ||
+                        p.address.toLowerCase().includes(searchVal) ||
                         p.comment.toLowerCase().includes(searchVal);
-    const matchPref = !prefVal || p.prefecture === prefVal;
-    const matchCat = !catVal || p.category === catVal;
-    return matchSearch && matchPref && matchCat;
+    const matchPref = !prefVal || getEffectivePrefecture(p) === prefVal;
+    const matchCat = !catVal || getEffectiveCategory(p) === catVal;
+    const matchRating = !minRating || (p.rating && p.rating >= minRating);
+    const matchDate = matchesDateRange(p.publishTime, dateFrom, dateTo);
+    return matchSearch && matchPref && matchCat && matchRating && matchDate;
   });
 
   // Sort
@@ -997,10 +1440,14 @@ function filterAndRender() {
     if (valA === null || valA === undefined) return currentSortDirection === 'asc' ? 1 : -1;
     if (valB === null || valB === undefined) return currentSortDirection === 'asc' ? -1 : 1;
 
-    // Special sorting logic
+    // Special sorting logic (uses the effective マイ.../Google連動 value, not the raw field)
     if (currentSortColumn === 'category') {
-      valA = CATEGORIES[a.category]?.name || "";
-      valB = CATEGORIES[b.category]?.name || "";
+      valA = getAllCategories()[getEffectiveCategory(a)]?.name || "";
+      valB = getAllCategories()[getEffectiveCategory(b)]?.name || "";
+    }
+    if (currentSortColumn === 'prefecture') {
+      valA = getEffectivePrefecture(a);
+      valB = getEffectivePrefecture(b);
     }
 
     if (typeof valA === 'string') {
@@ -1023,13 +1470,14 @@ function filterAndRender() {
 function renderStats(filteredList) {
   document.getElementById("stat-total-places").textContent = filteredList.length;
   
-  const uniquePrefs = new Set(filteredList.map(p => p.prefecture).filter(p => p !== "その他・海外"));
+  const uniquePrefs = new Set(filteredList.map(p => getEffectivePrefecture(p)).filter(p => p !== "その他・海外"));
   document.getElementById("stat-total-prefectures").textContent = uniquePrefs.size;
 
   // Top Category Calculation
   const catCounts = {};
   filteredList.forEach(p => {
-    catCounts[p.category] = (catCounts[p.category] || 0) + 1;
+    const cat = getEffectiveCategory(p);
+    catCounts[cat] = (catCounts[cat] || 0) + 1;
   });
   let topCatKey = "-";
   let maxCount = 0;
@@ -1040,7 +1488,8 @@ function renderStats(filteredList) {
     }
   });
   
-  const topCatLabel = CATEGORIES[topCatKey] ? `${CATEGORIES[topCatKey].name} (${maxCount})` : "-";
+  const allCats = getAllCategories();
+  const topCatLabel = allCats[topCatKey] ? `${allCats[topCatKey].name} (${maxCount})` : "-";
   document.getElementById("stat-top-category").textContent = topCatLabel;
 }
 
@@ -1094,44 +1543,75 @@ function renderTable(filteredList) {
     `;
     tr.appendChild(nameTd);
 
-    // Prefecture Edit Column
+    // Prefecture Edit Column (edits マイ都道府県; falls back to Google連動判定 when unset)
     const prefTd = document.createElement("td");
     prefTd.className = "col-pref";
     prefTd.setAttribute("data-label", "都道府県");
     const prefSelect = document.createElement("select");
-    prefSelect.className = "editable-select";
-    // Add default options
+    prefSelect.className = "editable-select" + (p.myPrefecture ? " has-override" : "");
+    prefSelect.title = p.myPrefecture ? "マイ都道府県で上書き中" : "自動判定された都道府県（変更するとマイ都道府県として保存されます）";
+    // Only show a way back to auto-detection when an override is actually active,
+    // so the common (non-overridden) row just displays the plain value like before.
+    if (p.myPrefecture) {
+      const resetPrefOpt = document.createElement("option");
+      resetPrefOpt.value = "";
+      resetPrefOpt.textContent = `↺ 自動判定に戻す (${p.prefecture})`;
+      prefSelect.appendChild(resetPrefOpt);
+    }
     const allPrefs = ["その他・海外", ...PREFECTURES];
     allPrefs.forEach(pref => {
       const opt = document.createElement("option");
       opt.value = pref;
       opt.textContent = pref;
-      if (pref === p.prefecture) opt.selected = true;
+      if (pref === getEffectivePrefecture(p)) opt.selected = true;
       prefSelect.appendChild(opt);
     });
     prefSelect.addEventListener("change", (e) => {
-      p.prefecture = e.target.value;
+      p.myPrefecture = e.target.value || null;
       setupDropdownFilters();
       filterAndRender();
     });
     prefTd.appendChild(prefSelect);
     tr.appendChild(prefTd);
 
-    // Category Edit Column
+    // Category Edit Column (edits マイカテゴリー; falls back to Google連動判定 when unset)
     const catTd = document.createElement("td");
     catTd.className = "col-cat";
     catTd.setAttribute("data-label", "カテゴリー");
     const catSelect = document.createElement("select");
-    catSelect.className = "editable-select";
+    catSelect.className = "editable-select" + (p.myCategory ? " has-override" : "");
+    catSelect.title = p.myCategory ? "マイカテゴリーで上書き中" : "自動判定されたカテゴリー（変更するとマイカテゴリーとして保存されます）";
+    if (p.myCategory) {
+      const resetCatOpt = document.createElement("option");
+      resetCatOpt.value = "";
+      resetCatOpt.textContent = `↺ 自動判定に戻す (${CATEGORIES[p.category]?.name || "その他"})`;
+      catSelect.appendChild(resetCatOpt);
+    }
+    const builtinGroup = document.createElement("optgroup");
+    builtinGroup.label = "標準カテゴリー";
     Object.entries(CATEGORIES).forEach(([key, info]) => {
       const opt = document.createElement("option");
       opt.value = key;
       opt.textContent = info.name;
-      if (key === p.category) opt.selected = true;
-      catSelect.appendChild(opt);
+      if (key === getEffectiveCategory(p)) opt.selected = true;
+      builtinGroup.appendChild(opt);
     });
+    catSelect.appendChild(builtinGroup);
+    const customKeys = Object.keys(customCategories);
+    if (customKeys.length > 0) {
+      const customGroup = document.createElement("optgroup");
+      customGroup.label = "マイカテゴリー（自作）";
+      customKeys.forEach(key => {
+        const opt = document.createElement("option");
+        opt.value = key;
+        opt.textContent = customCategories[key].name;
+        if (key === getEffectiveCategory(p)) opt.selected = true;
+        customGroup.appendChild(opt);
+      });
+      catSelect.appendChild(customGroup);
+    }
     catSelect.addEventListener("change", (e) => {
-      p.category = e.target.value;
+      p.myCategory = e.target.value || null;
       setupDropdownFilters();
       filterAndRender();
     });
@@ -1181,20 +1661,21 @@ function renderTable(filteredList) {
     updTd.textContent = p.publishTime || "-";
     tr.appendChild(updTd);
 
-    // Actions Column (Delete, Center Map)
+    // Actions Column (Delete, Center Map, Edit for manual entries)
     const actTd = document.createElement("td");
     actTd.className = "col-actions";
     actTd.setAttribute("data-label", "操作");
     actTd.innerHTML = `
       <div style="display:flex;gap:8px;">
-        ${p.lat && p.lng ? `<button class="btn" style="padding:4px 8px;font-size:0.75rem;" title="地図の中心に表示" class="btn-locate"><i data-lucide="map-pin" style="width:12px;height:12px;"></i></button>` : ''}
+        ${p.lat && p.lng ? `<button class="btn btn-locate" style="padding:4px 8px;font-size:0.75rem;" title="地図の中心に表示"><i data-lucide="map-pin" style="width:12px;height:12px;"></i></button>` : ''}
+        ${p.source === "手動入力" ? `<button class="btn btn-edit-manual" style="padding:4px 8px;font-size:0.75rem;" title="編集"><i data-lucide="pencil" style="width:12px;height:12px;"></i></button>` : ''}
         <button class="btn btn-delete" style="padding:4px 8px;font-size:0.75rem;background:rgba(239,68,68,0.1);color:#ef4444;border-color:rgba(239,68,68,0.2);" title="削除"><i data-lucide="trash" style="width:12px;height:12px;"></i></button>
       </div>
     `;
-    
+
     // Zoom Map listener
     if (p.lat && p.lng) {
-      actTd.querySelector("button").addEventListener("click", () => {
+      actTd.querySelector(".btn-locate").addEventListener("click", () => {
         map.setView([p.lat, p.lng], 15);
         // Find marker and open popup
         markersGroup.forEach(m => {
@@ -1205,6 +1686,13 @@ function renderTable(filteredList) {
         // Scroll the map into view so the update is actually visible
         // (the table sits above the map in the layout, so it can be off-screen)
         document.getElementById("map").scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    }
+
+    // Edit listener (手動入力 entries only, re-opens the manual-add modal prefilled)
+    if (p.source === "手動入力") {
+      actTd.querySelector(".btn-edit-manual").addEventListener("click", () => {
+        openManualAdd(p);
       });
     }
 
@@ -1231,8 +1719,8 @@ function renderMapMarkers(filteredList) {
   filteredList.forEach(p => {
     if (!p.lat || !p.lng) return;
 
-    const catColor = CATEGORIES[p.category]?.color || "#6b7280";
-    const catName = CATEGORIES[p.category]?.name || "その他";
+    const catColor = getAllCategories()[getEffectiveCategory(p)]?.color || "#6b7280";
+    const catName = getAllCategories()[getEffectiveCategory(p)]?.name || "その他";
 
     // Sleek Circle Marker instead of heavy icons
     const marker = L.circleMarker([p.lat, p.lng], {
@@ -1250,7 +1738,7 @@ function renderMapMarkers(filteredList) {
       <div class="map-popup-container">
         <div class="map-popup-header">${p.name}</div>
         <div class="map-popup-meta">
-          <span class="tag tag-prefecture">${p.prefecture}</span>
+          <span class="tag tag-prefecture">${getEffectivePrefecture(p)}</span>
           <span class="tag tag-category">${catName}</span>
         </div>
         ${p.rating ? `<div class="rating-stars">${"★".repeat(p.rating)}${"☆".repeat(5 - p.rating)}</div>` : ''}
@@ -1281,21 +1769,23 @@ function fitMapToMarkers() {
 // Render Analytical Charts (Chart.js)
 function renderCharts(filteredList) {
   // 1. Category Chart (Doughnut)
+  const allCats = getAllCategories();
   const catData = {};
-  Object.keys(CATEGORIES).forEach(k => { catData[k] = 0; });
+  Object.keys(allCats).forEach(k => { catData[k] = 0; });
   filteredList.forEach(p => {
-    catData[p.category] = (catData[p.category] || 0) + 1;
+    const cat = getEffectiveCategory(p);
+    catData[cat] = (catData[cat] || 0) + 1;
   });
 
   const catLabels = [];
   const catCounts = [];
   const catColors = [];
-  
+
   Object.entries(catData).forEach(([key, count]) => {
     if (count > 0) {
-      catLabels.push(CATEGORIES[key].name);
+      catLabels.push(allCats[key].name);
       catCounts.push(count);
-      catColors.push(CATEGORIES[key].color);
+      catColors.push(allCats[key].color);
     }
   });
 
@@ -1317,8 +1807,17 @@ function renderCharts(filteredList) {
       maintainAspectRatio: false,
       plugins: {
         legend: {
-          position: 'right',
-          labels: { color: '#9ca3af', font: { family: 'Inter', size: 11 } }
+          // 'right' stacks one item per row with no wrapping, so once the category
+          // count grows (especially with custom マイカテゴリー added) entries run past
+          // the container's fixed height and simply don't get drawn. 'bottom' wraps
+          // items across the full width instead, so it scales with category count.
+          position: 'bottom',
+          labels: {
+            color: '#9ca3af',
+            font: { family: 'Inter', size: 11 },
+            boxWidth: 12,
+            padding: 10
+          }
         }
       }
     }
@@ -1327,7 +1826,8 @@ function renderCharts(filteredList) {
   // 2. Prefecture Chart (Horizontal Bar Chart)
   const prefCounts = {};
   filteredList.forEach(p => {
-    prefCounts[p.prefecture] = (prefCounts[p.prefecture] || 0) + 1;
+    const pref = getEffectivePrefecture(p);
+    prefCounts[pref] = (prefCounts[pref] || 0) + 1;
   });
 
   // Sort prefectures by count descending
@@ -1396,13 +1896,15 @@ function exportCSV() {
 
   const csvRows = [];
   // Headers
-  csvRows.push(["スポット名", "都道府県", "カテゴリー", "住所", "評価", "レビュー・メモ", "初投稿日", "最終更新日", "緯度", "経度", "Googleマップリンク", "データソース"].join(","));
+  csvRows.push(["スポット名", "都道府県", "マイ都道府県", "カテゴリー", "マイカテゴリー", "住所", "評価", "レビュー・メモ", "初投稿日", "最終更新日", "緯度", "経度", "Googleマップリンク", "データソース"].join(","));
 
   places.forEach(p => {
     const row = [
       escapeCSVValue(p.name),
       escapeCSVValue(p.prefecture),
+      escapeCSVValue(p.myPrefecture || ""),
       escapeCSVValue(CATEGORIES[p.category]?.name || "その他"),
+      escapeCSVValue(p.myCategory ? (getAllCategories()[p.myCategory]?.name || "") : ""),
       escapeCSVValue(p.address),
       escapeCSVValue(p.rating ? p.rating.toString() : ""),
       escapeCSVValue(p.comment),
@@ -1450,6 +1952,12 @@ function exportJSON() {
     prefecture: p.prefecture,
     categoryKey: p.category,
     categoryName: CATEGORIES[p.category]?.name || "その他",
+    myPrefecture: p.myPrefecture || null,
+    myCategoryKey: p.myCategory || null,
+    myCategoryName: p.myCategory ? (getAllCategories()[p.myCategory]?.name || null) : null,
+    // Only meaningful for a custom (non-built-in) マイカテゴリー; lets a re-import
+    // reconstruct the category definition itself, not just this record's reference to it.
+    myCategoryColor: (p.myCategory && customCategories[p.myCategory]) ? customCategories[p.myCategory].color : null,
     address: p.address,
     rating: p.rating,
     comment: p.comment,
@@ -1700,5 +2208,5 @@ function loadSampleData() {
 
 // Expose pure logic functions for Node-based tests (no-op in the browser).
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { classifyCategory, parseAppBackupJSON };
+  module.exports = { classifyCategory, parseAppBackupJSON, getAllCategories, customCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields };
 }
