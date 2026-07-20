@@ -395,22 +395,17 @@ function exportManualCSV() {
   document.body.removeChild(link);
 }
 
-async function importManualCSV(file) {
-  let text;
-  try {
-    text = await readFileAsText(file);
-  } catch (e) {
-    alert(`ファイル「${file.name}」の読み込み中にエラーが発生しました。`);
-    return;
-  }
+// Shared upsert core for this app's own 手動入力 CSV export/import: detect
+// columns from the header row, then for each data row either update the
+// existing place with a matching ID or add it as a brand new 手動入力 entry.
+// Returns null if the CSV has no recognizable スポット名 column at all.
+// Used both by the dedicated "CSVから読み込む" button (importManualCSV) and by
+// handleFiles' auto-detection when this kind of CSV is dropped on the main
+// upload area instead (see isManualExportCSV).
+function applyManualCSVRows(rows) {
+  if (rows.length < 2) return { addedCount: 0, updatedCount: 0 };
 
-  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter(l => l.trim());
-  if (lines.length < 2) {
-    alert("有効なデータが見つかりませんでした。");
-    return;
-  }
-
-  const headers = parseCSVLine(lines[0]);
+  const headers = rows[0];
   const idIdx = headers.findIndex(h => /^id$/i.test(h.trim()));
   const nameIdx = headers.findIndex(h => /name|title|名前|スポット名/i.test(h));
   const addressIdx = headers.findIndex(h => /address|住所/i.test(h));
@@ -420,31 +415,27 @@ async function importManualCSV(file) {
   const urlIdx = headers.findIndex(h => /url|link|リンク/i.test(h));
   const coordIdx = headers.findIndex(h => /緯度経度|座標|coordinates|lat.?lng/i.test(h));
 
-  if (nameIdx === -1) {
-    alert("CSVに「スポット名」の列が見つかりませんでした。");
-    return;
-  }
+  if (nameIdx === -1) return null;
 
-  const wasEmpty = places.length === 0;
   let updatedCount = 0;
   let addedCount = 0;
 
-  for (let i = 1; i < lines.length; i++) {
-    const row = parseCSVLine(lines[i]);
-    const name = nameIdx !== -1 ? row[nameIdx] : "";
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    const name = csvField(row, nameIdx);
     if (!name) continue;
 
     const input = {
       name: name,
-      address: addressIdx !== -1 ? row[addressIdx] : "",
-      rating: ratingIdx !== -1 && row[ratingIdx] ? parseRatingValue(row[ratingIdx]) : null,
-      comment: commentIdx !== -1 ? row[commentIdx] : "",
-      url: urlIdx !== -1 ? row[urlIdx] : "",
-      publishTime: dateIdx !== -1 && row[dateIdx] ? formatDateString(row[dateIdx]) : "",
-      coordinateText: coordIdx !== -1 ? row[coordIdx] : ""
+      address: csvField(row, addressIdx),
+      rating: csvField(row, ratingIdx) ? parseRatingValue(csvField(row, ratingIdx)) : null,
+      comment: csvField(row, commentIdx),
+      url: csvField(row, urlIdx),
+      publishTime: csvField(row, dateIdx) ? formatDateString(csvField(row, dateIdx)) : "",
+      coordinateText: csvField(row, coordIdx)
     };
 
-    const id = idIdx !== -1 ? row[idIdx].trim() : "";
+    const id = csvField(row, idIdx).trim();
     const existing = id ? places.find(p => p.id === id) : null;
 
     if (existing) {
@@ -456,11 +447,46 @@ async function importManualCSV(file) {
     }
   }
 
+  return { addedCount, updatedCount };
+}
+
+// True when a CSV's header row matches this app's own 手動入力 export format
+// (exportManualCSV always writes an "ID" column; ordinary Google Takeout /
+// third-party CSVs never do). Lets the main upload area auto-detect and
+// correctly restore such a file instead of silently importing it as generic,
+// un-editable "CSVインポート" data (which is what happened before — dropping
+// a re-exported 手動入力 CSV on the first screen lost the 編集 icon).
+function isManualExportCSV(rows) {
+  return rows.length > 0 && rows[0].some(h => /^id$/i.test(h.trim()));
+}
+
+async function importManualCSV(file) {
+  let text;
+  try {
+    text = await readFileAsText(file);
+  } catch (e) {
+    alert(`ファイル「${file.name}」の読み込み中にエラーが発生しました。`);
+    return;
+  }
+
+  const rows = parseCSVRows(text.replace(/^﻿/, ""));
+  if (rows.length < 2) {
+    alert("有効なデータが見つかりませんでした。");
+    return;
+  }
+
+  const wasEmpty = places.length === 0;
+  const result = applyManualCSVRows(rows);
+  if (result === null) {
+    alert("CSVに「スポット名」の列が見つかりませんでした。");
+    return;
+  }
+
   setupDropdownFilters();
   filterAndRender();
   if (wasEmpty && places.length > 0) showDashboard();
 
-  alert(`${addedCount}件を新規追加、${updatedCount}件を更新しました。`);
+  alert(`${result.addedCount}件を新規追加、${result.updatedCount}件を更新しました。`);
 }
 
 // Render the list of user-created categories inside the settings modal
@@ -550,35 +576,74 @@ async function handleFiles(files) {
   
   showLoading(true, "ファイルを解析中...", "0%");
   let newPlaces = [];
+  let manualImportHappened = false;
+  let manualAdded = 0;
+  let manualUpdated = 0;
 
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i];
-    const progress = Math.round(((i) / files.length) * 100) + "%";
-    showLoading(true, `ファイルを解析中: ${file.name}`, progress);
+  // The whole body runs under try/finally so showLoading(false) always fires,
+  // even if something downstream of parsing (e.g. dedup/render) throws on
+  // unexpected data — otherwise the loading overlay is left spinning forever
+  // with no way for the user to recover short of reloading the page.
+  try {
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const progress = Math.round(((i) / files.length) * 100) + "%";
+      showLoading(true, `ファイルを解析中: ${file.name}`, progress);
 
-    try {
-      const text = await readFileAsText(file);
-      const parsed = parseFileData(file.name, text);
-      newPlaces = newPlaces.concat(parsed);
-    } catch (e) {
-      console.error("Error reading file:", file.name, e);
-      alert(`ファイル「${file.name}」の読み込み中にエラーが発生しました。\nフォーマットをご確認ください。`);
+      try {
+        const text = await readFileAsText(file);
+        const ext = file.name.split('.').pop().toLowerCase();
+
+        // Auto-detect this app's own 手動入力 CSV export (has an "ID"
+        // column) even when it's dropped on the main upload area instead of
+        // the dedicated "CSVから読み込む" button, so it's restored via
+        // ID-matched upsert (source: 手動入力, 編集アイコンあり) rather than
+        // imported as generic, un-editable "CSVインポート" rows.
+        if (ext === 'csv') {
+          const rows = parseCSVRows(text.replace(/^﻿/, ""));
+          if (isManualExportCSV(rows)) {
+            const result = applyManualCSVRows(rows);
+            if (result) {
+              manualImportHappened = true;
+              manualAdded += result.addedCount;
+              manualUpdated += result.updatedCount;
+            }
+            continue;
+          }
+        }
+
+        const parsed = parseFileData(file.name, text);
+        newPlaces = newPlaces.concat(parsed);
+      } catch (e) {
+        console.error("Error reading file:", file.name, e);
+        alert(`ファイル「${file.name}」の読み込み中にエラーが発生しました。\nフォーマットをご確認ください。`);
+      }
     }
+
+    const hasNewPlaces = newPlaces.length > 0;
+    if (hasNewPlaces) {
+      places = places.concat(newPlaces);
+      // Deduplicate based on coordinates or URL or name
+      places = deduplicatePlaces(places);
+    }
+
+    if (hasNewPlaces || manualImportHappened) {
+      setupDropdownFilters();
+      filterAndRender();
+      showDashboard();
+    } else {
+      alert("有効なGoogle Mapsデータが検出されませんでした。");
+    }
+
+    if (manualImportHappened) {
+      alert(`手動入力データとして復元しました（新規${manualAdded}件・更新${manualUpdated}件）。`);
+    }
+  } catch (e) {
+    console.error("Unexpected error while importing files:", e);
+    alert("データの取り込み中に予期しないエラーが発生しました。ファイルの内容をご確認ください。");
+  } finally {
+    showLoading(false);
   }
-
-  if (newPlaces.length > 0) {
-    places = places.concat(newPlaces);
-    // Deduplicate based on coordinates or URL or name
-    places = deduplicatePlaces(places);
-
-    setupDropdownFilters();
-    filterAndRender();
-    showDashboard();
-  } else {
-    alert("有効なGoogle Mapsデータが検出されませんでした。");
-  }
-
-  showLoading(false);
 }
 
 // Switch from the upload screen to the loaded dashboard UI. Used both after a
@@ -1025,11 +1090,11 @@ function parseAppBackupJSON(json) {
 // Parse CSV Format
 function parseCSVData(csvText) {
   const parsed = [];
-  const lines = csvText.split(/\r?\n/);
-  if (lines.length < 2) return [];
+  const rows = parseCSVRows(csvText);
+  if (rows.length < 2) return [];
 
   // Parse headers
-  const headers = parseCSVLine(lines[0]);
+  const headers = rows[0];
   const nameIdx = headers.findIndex(h => /name|title|名前|スポット名|店舗名|施設名|場所の名前/i.test(h));
   const addressIdx = headers.findIndex(h => /address|location|住所|場所|所在地/i.test(h));
   const latIdx = headers.findIndex(h => /lat|latitude|緯度/i.test(h));
@@ -1040,21 +1105,25 @@ function parseCSVData(csvText) {
   const publishIdx = headers.findIndex(h => /publish|create|date|timestamp|投稿日|作成日/i.test(h));
   const updateIdx = headers.findIndex(h => /update|modify|last|更新日|最終更新日/i.test(h));
 
-  for (let i = 1; i < lines.length; i++) {
-    if (!lines[i].trim()) continue;
-    const row = parseCSVLine(lines[i]);
-    
-    const name = nameIdx !== -1 ? row[nameIdx] : "名称未設定";
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+
+    const name = csvField(row, nameIdx) || "名称未設定";
     if (!name || name === "名称未設定") continue;
 
-    const address = addressIdx !== -1 ? row[addressIdx] : "";
-    const lat = latIdx !== -1 && row[latIdx] ? parseFloat(row[latIdx]) : null;
-    const lng = lngIdx !== -1 && row[lngIdx] ? parseFloat(row[lngIdx]) : null;
-    const comment = commentIdx !== -1 ? row[commentIdx] : "";
-    const url = urlIdx !== -1 ? row[urlIdx] : "";
-    const rating = ratingIdx !== -1 && row[ratingIdx] ? parseRatingValue(row[ratingIdx]) : null;
-    const publishTime = publishIdx !== -1 && row[publishIdx] ? formatDateString(row[publishIdx]) : "";
-    const updateTime = updateIdx !== -1 && row[updateIdx] ? formatDateString(row[updateIdx]) : "";
+    const address = csvField(row, addressIdx);
+    const latRaw = csvField(row, latIdx);
+    const lngRaw = csvField(row, lngIdx);
+    const lat = latRaw ? parseFloat(latRaw) : null;
+    const lng = lngRaw ? parseFloat(lngRaw) : null;
+    const comment = csvField(row, commentIdx);
+    const url = csvField(row, urlIdx);
+    const ratingRaw = csvField(row, ratingIdx);
+    const rating = ratingRaw ? parseRatingValue(ratingRaw) : null;
+    const publishRaw = csvField(row, publishIdx);
+    const updateRaw = csvField(row, updateIdx);
+    const publishTime = publishRaw ? formatDateString(publishRaw) : "";
+    const updateTime = updateRaw ? formatDateString(updateRaw) : "";
 
     const pref = extractPrefecture(address, name, lat, lng);
     const cat = classifyCategory(name, comment);
@@ -1081,29 +1150,68 @@ function parseCSVData(csvText) {
   return parsed;
 }
 
-// CSV Line Parser handling quotes
-function parseCSVLine(text) {
-  const result = [];
-  let cur = '';
+// Parse an entire CSV text into rows (each an array of trimmed field
+// strings). Handles quoted fields that contain commas AND embedded newlines
+// (e.g. a multi-paragraph クチコミ comment) — splitting the text into lines
+// with .split(/\r?\n/) *before* parsing quotes (the previous approach) breaks
+// those rows apart mid-field, misaligning every column that follows and
+// eventually feeding undefined values into deduplicatePlaces.
+function parseCSVRows(text) {
+  const rows = [];
+  let row = [];
+  let field = '';
   let inQuotes = false;
+
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
-    if (c === '"') {
-      if (inQuotes && text[i+1] === '"') {
-        cur += '"';
-        i++;
+
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') {
+          field += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else if (c === '\r') {
+        // drop bare CR (from CRLF line endings inside the quoted field)
       } else {
-        inQuotes = !inQuotes;
+        field += c;
       }
-    } else if (c === ',' && !inQuotes) {
-      result.push(cur.trim());
-      cur = '';
+      continue;
+    }
+
+    if (c === '"') {
+      inQuotes = true;
+    } else if (c === ',') {
+      row.push(field.trim());
+      field = '';
+    } else if (c === '\r') {
+      // ignore; the row ends on \n below
+    } else if (c === '\n') {
+      row.push(field.trim());
+      rows.push(row);
+      row = [];
+      field = '';
     } else {
-      cur += c;
+      field += c;
     }
   }
-  result.push(cur.trim());
-  return result;
+
+  // Last field/row when the file doesn't end with a trailing newline
+  if (field !== '' || row.length > 0) {
+    row.push(field.trim());
+    rows.push(row);
+  }
+
+  return rows.filter(r => r.some(f => f !== ''));
+}
+
+// Safe indexed field access: a malformed/short CSV row (or a header column
+// that simply wasn't found, idx === -1) should read as "" rather than throw
+// later when something calls .toLowerCase()/.trim() on it.
+function csvField(row, idx) {
+  return idx !== -1 && row[idx] !== undefined ? row[idx] : "";
 }
 
 // Parse a coordinate pair pasted in the "lat, lng" form Google Maps shows in
@@ -1179,9 +1287,9 @@ function deduplicatePlaces(list) {
     if (item.url) {
       key = item.url;
     } else if (item.lat && item.lng) {
-      key = `${item.name.toLowerCase()}-${item.lat.toFixed(4)}-${item.lng.toFixed(4)}`;
+      key = `${(item.name || "").toLowerCase()}-${item.lat.toFixed(4)}-${item.lng.toFixed(4)}`;
     } else {
-      key = `${item.name.toLowerCase()}-${item.address.toLowerCase()}`;
+      key = `${(item.name || "").toLowerCase()}-${(item.address || "").toLowerCase()}`;
     }
     
     if (!keys.has(key)) {
@@ -2208,5 +2316,5 @@ function loadSampleData() {
 
 // Expose pure logic functions for Node-based tests (no-op in the browser).
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { classifyCategory, parseAppBackupJSON, getAllCategories, customCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields };
+  module.exports = { classifyCategory, parseAppBackupJSON, getAllCategories, customCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData };
 }
