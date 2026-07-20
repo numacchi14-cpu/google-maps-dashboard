@@ -183,6 +183,12 @@ function setupEventListeners() {
 
 // Reset App State
 function resetApp() {
+  if (places.length > 0) {
+    if (confirm(`リセットすると現在のデータ（${places.length}件）は完全に削除されます。\n先にJSONファイルとしてバックアップをダウンロードしますか？`)) {
+      exportJSON();
+    }
+  }
+
   if (confirm("データをリセットしますか？")) {
     places = [];
     document.getElementById("upload-section").style.display = "block";
