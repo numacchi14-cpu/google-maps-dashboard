@@ -55,92 +55,86 @@
 
     <!-- Dashboard Content (hidden initially) -->
     <div class="dashboard-grid" id="dashboard-section">
-      <!-- Main Content (Left Column) -->
-      <div class="column-main">
-        
-        <!-- Stats Summary -->
-        <div class="stats-container">
-          <div class="stat-card">
-            <div class="stat-icon">
-              <i data-lucide="map-pin"></i>
-            </div>
-            <div class="stat-info">
-              <span class="stat-value" id="stat-total-places">0</span>
-              <span class="stat-label">総スポット数</span>
-            </div>
+      <!-- Stats Summary -->
+      <div class="stats-container">
+        <div class="stat-card">
+          <div class="stat-icon">
+            <i data-lucide="map-pin"></i>
           </div>
-          <div class="stat-card">
-            <div class="stat-icon">
-              <i data-lucide="map"></i>
-            </div>
-            <div class="stat-info">
-              <span class="stat-value" id="stat-total-prefectures">0</span>
-              <span class="stat-label">制覇した都道府県</span>
-            </div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-icon">
-              <i data-lucide="tag"></i>
-            </div>
-            <div class="stat-info">
-              <span class="stat-value" id="stat-top-category">-</span>
-              <span class="stat-label">最多カテゴリー</span>
-            </div>
+          <div class="stat-info">
+            <span class="stat-value" id="stat-total-places">0</span>
+            <span class="stat-label">総スポット数</span>
           </div>
         </div>
-
-        <!-- Places List Table -->
-        <div class="glass-card table-card">
-          <div class="card-header">
-            <h3 class="card-title"><i data-lucide="list"></i> スポット一覧</h3>
-            
-            <div class="filter-row">
-              <div class="search-wrapper">
-                <i data-lucide="search" class="search-icon"></i>
-                <input type="text" id="search-box" class="search-input" placeholder="スポット名、住所、レビューを検索...">
-              </div>
-              <select id="filter-prefecture" class="select-input">
-                <option value="">すべての都道府県</option>
-              </select>
-              <select id="filter-category" class="select-input">
-                <option value="">すべてのカテゴリー</option>
-              </select>
-            </div>
+        <div class="stat-card">
+          <div class="stat-icon">
+            <i data-lucide="map"></i>
           </div>
-
-          <div class="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th class="col-name" data-sort="name">スポット名 <i data-lucide="chevrons-up-down" style="width:14px;height:14px;vertical-align:middle;display:inline-block;"></i></th>
-                  <th class="col-pref" data-sort="prefecture">都道府県 <i data-lucide="chevrons-up-down" style="width:14px;height:14px;vertical-align:middle;display:inline-block;"></i></th>
-                  <th class="col-cat" data-sort="category">カテゴリー <i data-lucide="chevrons-up-down" style="width:14px;height:14px;vertical-align:middle;display:inline-block;"></i></th>
-                  <th class="col-address">住所</th>
-                  <th class="col-rating" data-sort="rating">評価 <i data-lucide="chevrons-up-down" style="width:14px;height:14px;vertical-align:middle;display:inline-block;"></i></th>
-                  <th class="review-text-cell">レビュー・メモ</th>
-                  <th class="col-pub-date" data-sort="publishTime">初投稿日 <i data-lucide="chevrons-up-down" style="width:14px;height:14px;vertical-align:middle;display:inline-block;"></i></th>
-                  <th class="col-upd-date" data-sort="updateTime">最終更新日 <i data-lucide="chevrons-up-down" style="width:14px;height:14px;vertical-align:middle;display:inline-block;"></i></th>
-                  <th class="col-actions">操作</th>
-                </tr>
-              </thead>
-              <tbody id="places-table-body">
-                <!-- Dynamically populated -->
-              </tbody>
-            </table>
-            
-            <div class="empty-state" id="table-empty-state" style="display: none;">
-              <i data-lucide="search-code" class="empty-state-icon"></i>
-              <h3>データが見つかりません</h3>
-              <p>検索条件やフィルターを変更してみてください。</p>
-            </div>
+          <div class="stat-info">
+            <span class="stat-value" id="stat-total-prefectures">0</span>
+            <span class="stat-label">制覇した都道府県</span>
           </div>
         </div>
-
+        <div class="stat-card">
+          <div class="stat-icon">
+            <i data-lucide="tag"></i>
+          </div>
+          <div class="stat-info">
+            <span class="stat-value" id="stat-top-category">-</span>
+            <span class="stat-label">最多カテゴリー</span>
+          </div>
+        </div>
       </div>
 
-      <!-- Sidebar Content (Right Column) -->
-      <div class="column-side">
-        
+      <!-- Places List Table (Full Width) -->
+      <div class="glass-card table-card">
+        <div class="card-header">
+          <h3 class="card-title"><i data-lucide="list"></i> スポット一覧</h3>
+          
+          <div class="filter-row">
+            <div class="search-wrapper">
+              <i data-lucide="search" class="search-icon"></i>
+              <input type="text" id="search-box" class="search-input" placeholder="スポット名、住所、レビューを検索...">
+            </div>
+            <select id="filter-prefecture" class="select-input">
+              <option value="">すべての都道府県</option>
+            </select>
+            <select id="filter-category" class="select-input">
+              <option value="">すべてのカテゴリー</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th class="col-name" data-sort="name">スポット名 <i data-lucide="chevrons-up-down" style="width:14px;height:14px;vertical-align:middle;display:inline-block;"></i></th>
+                <th class="col-pref" data-sort="prefecture">都道府県 <i data-lucide="chevrons-up-down" style="width:14px;height:14px;vertical-align:middle;display:inline-block;"></i></th>
+                <th class="col-cat" data-sort="category">カテゴリー <i data-lucide="chevrons-up-down" style="width:14px;height:14px;vertical-align:middle;display:inline-block;"></i></th>
+                <th class="col-address">住所</th>
+                <th class="col-rating" data-sort="rating">評価 <i data-lucide="chevrons-up-down" style="width:14px;height:14px;vertical-align:middle;display:inline-block;"></i></th>
+                <th class="review-text-cell">レビュー・メモ</th>
+                <th class="col-pub-date" data-sort="publishTime">初投稿日 <i data-lucide="chevrons-up-down" style="width:14px;height:14px;vertical-align:middle;display:inline-block;"></i></th>
+                <th class="col-upd-date" data-sort="updateTime">最終更新日 <i data-lucide="chevrons-up-down" style="width:14px;height:14px;vertical-align:middle;display:inline-block;"></i></th>
+                <th class="col-actions">操作</th>
+              </tr>
+            </thead>
+            <tbody id="places-table-body">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+          
+          <div class="empty-state" id="table-empty-state" style="display: none;">
+            <i data-lucide="search-code" class="empty-state-icon"></i>
+            <h3>データが見つかりません</h3>
+            <p>検索条件やフィルターを変更してみてください。</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom Layout for Map & Charts (3 Column Row) -->
+      <div class="bottom-grid">
         <!-- Interactive Map -->
         <div class="glass-card">
           <div class="card-header">
@@ -149,7 +143,7 @@
           <div id="map"></div>
         </div>
 
-        <!-- Charts Dashboard -->
+        <!-- Category Ratio Chart -->
         <div class="glass-card">
           <div class="card-header">
             <h3 class="card-title"><i data-lucide="pie-chart"></i> カテゴリー比率</h3>
@@ -159,6 +153,7 @@
           </div>
         </div>
 
+        <!-- Prefecture top-10 Chart -->
         <div class="glass-card">
           <div class="card-header">
             <h3 class="card-title"><i data-lucide="bar-chart-3"></i> 都道府県別トップ10</h3>
@@ -167,8 +162,8 @@
             <canvas id="prefecture-chart"></canvas>
           </div>
         </div>
-
       </div>
+    </div>
     </div>
   </div>
 

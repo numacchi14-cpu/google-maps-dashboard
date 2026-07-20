@@ -199,8 +199,8 @@ header {
 
 /* Dashboard Layout (Grid) */
 .dashboard-grid {
-  display: grid;
-  grid-template-columns: 1.2fr 0.8fr;
+  display: flex;
+  flex-direction: column;
   gap: 2rem;
   opacity: 0;
   transform: translateY(20px);
@@ -212,21 +212,17 @@ header {
   transform: translateY(0);
 }
 
-/* Left & Right Columns */
-.column-main {
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
-  min-width: 0; /* Prevent flex blowout */
+/* Bottom Grid for Map & Charts */
+.bottom-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.5rem;
 }
 
-.column-side {
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
-  position: sticky;
-  top: 2rem;
-  height: fit-content;
+@media (max-width: 1024px) {
+  .bottom-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* Stats Row */
@@ -421,7 +417,7 @@ header {
 
 /* Map Container */
 #map {
-  height: 400px;
+  height: 280px;
   border-radius: 12px;
   border: 1px solid var(--border-color);
   background: #111;
@@ -519,7 +515,7 @@ header {
 
 .chart-container {
   position: relative;
-  height: 250px;
+  height: 280px;
   width: 100%;
 }
 
@@ -577,15 +573,36 @@ tr:hover td {
 
 .col-name {
   font-weight: 500;
-  max-width: 240px;
-  word-break: break-all;
+  min-width: 180px;
+  max-width: 280px;
 }
 
 .col-address {
   color: var(--text-secondary);
-  max-width: 320px;
+  min-width: 280px;
+  max-width: 450px;
   font-size: 0.85rem;
-  word-break: break-all;
+}
+
+/* Horizontally scrollable cell container */
+.cell-scrollable {
+  white-space: nowrap;
+  overflow-x: auto;
+  max-width: 100%;
+  scrollbar-width: thin;
+}
+
+.cell-scrollable::-webkit-scrollbar {
+  height: 4px;
+}
+
+.cell-scrollable::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+}
+
+.cell-scrollable::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 .rating-stars {

@@ -1007,6 +1007,30 @@ function renderStats(filteredList) {
   document.getElementById("stat-top-category").textContent = topCatLabel;
 }
 
+// Split address into Line 1 (Country/Postcode) and Line 2 (Prefecture onwards)
+function splitAddress(address) {
+  if (!address) return { line1: "-", line2: "" };
+  
+  // Try to match "日本、〒123-4567 "
+  const match = address.match(/^(日本[、\s]*〒?\d{3}-\d{4})\s*(.*)$/);
+  if (match) {
+    return { line1: match[1], line2: match[2] };
+  }
+  
+  // Try to match "〒123-4567 "
+  const matchPostal = address.match(/^(〒?\d{3}-\d{4})\s*(.*)$/);
+  if (matchPostal) {
+    return { line1: matchPostal[1], line2: matchPostal[2] };
+  }
+  
+  // Try to match "日本、" at the start
+  if (address.startsWith("日本、")) {
+    return { line1: "日本", line2: address.substring(3).trim() };
+  }
+  
+  return { line1: address, line2: "" };
+}
+
 // Render Places Table
 function renderTable(filteredList) {
   const tbody = document.getElementById("places-table-body");
@@ -1026,8 +1050,10 @@ function renderTable(filteredList) {
     const nameTd = document.createElement("td");
     nameTd.className = "col-name";
     nameTd.innerHTML = `
-      ${p.url ? `<a href="${p.url}" target="_blank" class="maps-link-btn" title="Googleマップで開く"><i data-lucide="external-link" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;display:inline-block;"></i></a>` : ''}
-      <span title="${p.name}">${p.name}</span>
+      <div class="cell-scrollable">
+        ${p.url ? `<a href="${p.url}" target="_blank" class="maps-link-btn" title="Googleマップで開く"><i data-lucide="external-link" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;display:inline-block;"></i></a>` : ''}
+        <span title="${p.name}">${p.name}</span>
+      </div>
     `;
     tr.appendChild(nameTd);
 
@@ -1076,8 +1102,15 @@ function renderTable(filteredList) {
     // Address Column
     const addrTd = document.createElement("td");
     addrTd.className = "col-address";
-    addrTd.textContent = p.address || "-";
-    addrTd.title = p.address;
+    const addrParts = splitAddress(p.address);
+    if (addrParts.line2) {
+      addrTd.innerHTML = `
+        <div class="cell-scrollable" title="${p.address}">${addrParts.line1}</div>
+        <div class="cell-scrollable" title="${p.address}">${addrParts.line2}</div>
+      `;
+    } else {
+      addrTd.innerHTML = `<div class="cell-scrollable" title="${p.address}">${addrParts.line1}</div>`;
+    }
     tr.appendChild(addrTd);
 
     // Rating Column
