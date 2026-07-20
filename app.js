@@ -1195,6 +1195,9 @@ function renderTable(filteredList) {
             m.openPopup();
           }
         });
+        // Scroll the map into view so the update is actually visible
+        // (the table sits above the map in the layout, so it can be off-screen)
+        document.getElementById("map").scrollIntoView({ behavior: "smooth", block: "center" });
       });
     }
 
