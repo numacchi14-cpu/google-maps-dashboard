@@ -577,10 +577,20 @@ tr:hover td {
   max-width: 280px;
 }
 
+.col-pref {
+  min-width: 140px;
+  width: 140px;
+}
+
+.col-cat {
+  min-width: 190px;
+  width: 190px;
+}
+
 .col-address {
   color: var(--text-secondary);
-  min-width: 280px;
-  max-width: 450px;
+  min-width: 200px;
+  max-width: 320px;
   font-size: 0.85rem;
 }
 
@@ -668,29 +678,12 @@ tr:hover td {
   color: var(--accent-primary);
 }
 
-/* Detail Review popup inside table */
+/* Detail Review inside table */
 .review-text-cell {
   font-size: 0.85rem;
   color: var(--text-secondary);
-  max-width: 250px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.review-text-cell.expanded {
-  white-space: normal;
-  overflow: visible;
-  max-width: none;
-}
-
-.read-more-btn {
-  background: none;
-  border: none;
-  color: var(--accent-primary);
-  font-size: 0.75rem;
-  cursor: pointer;
-  padding-left: 0.25rem;
+  min-width: 200px;
+  max-width: 320px;
 }
 
 /* Loading Overlay */

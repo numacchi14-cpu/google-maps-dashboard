@@ -1129,48 +1129,13 @@ function renderTable(filteredList) {
     // Review/Comment Column
     const commentTd = document.createElement("td");
     commentTd.className = "review-text-cell";
-    if (p.comment) {
-      commentTd.textContent = p.comment;
-      commentTd.title = p.comment;
-      
-      // Expand text if too long
-      if (p.comment.length > 20) {
-        commentTd.innerHTML = `
-          <span>${p.comment.substring(0, 20)}...</span>
-          <button class="read-more-btn">詳細</button>
-        `;
-        const btn = commentTd.querySelector(".read-more-btn");
-        btn.addEventListener("click", () => {
-          if (commentTd.classList.contains("expanded")) {
-            commentTd.classList.remove("expanded");
-            commentTd.innerHTML = `<span>${p.comment.substring(0, 20)}...</span><button class="read-more-btn">詳細</button>`;
-            // re-bind
-            commentTd.querySelector(".read-more-btn").addEventListener("click", arguments.callee);
-          } else {
-            commentTd.classList.add("expanded");
-            commentTd.innerHTML = `<span>${p.comment}</span><button class="read-more-btn">閉じる</button>`;
-            commentTd.querySelector(".read-more-btn").addEventListener("click", () => {
-              commentTd.classList.remove("expanded");
-              filterAndRender(); // re-render to restore state
-            });
-          }
-        });
-      }
-    } else {
-      commentTd.textContent = "-";
-    }
+    commentTd.innerHTML = p.comment ? `<div class="cell-scrollable" title="${p.comment}">${p.comment}</div>` : `<div class="cell-scrollable">-</div>`;
     tr.appendChild(commentTd);
 
-    // Publish Date Column
-    const pubTd = document.createElement("td");
-    pubTd.className = "col-pub-date";
-    pubTd.textContent = p.publishTime || "-";
-    tr.appendChild(pubTd);
-
-    // Update Date Column
+    // Update Date Column (derived from publishTime / date property)
     const updTd = document.createElement("td");
     updTd.className = "col-upd-date";
-    updTd.textContent = p.updateTime || "-";
+    updTd.textContent = p.publishTime || "-";
     tr.appendChild(updTd);
 
     // Actions Column (Delete, Center Map)
