@@ -503,6 +503,13 @@ function parseFileData(filename, content) {
       }
       
       if (Array.isArray(json)) {
+        // Restore from this app's own JSON export (e.g. the pre-reset backup) as-is,
+        // without recomputing category/prefecture or losing coordinates to a key-name mismatch.
+        const isAppBackup = json.length > 0 && json[0].categoryKey !== undefined;
+        if (isAppBackup) {
+          return parseAppBackupJSON(json);
+        }
+
         const isReviews = json.length > 0 && (
           json[0].review || json[0].place || json[0].comment || 
           json[0].title || json[0].starRating || json[0].location || 
@@ -634,6 +641,30 @@ function parseReviewsJSON(json) {
   return parsed;
 }
 
+// Restore places from this app's own JSON export, preserving saved
+// category/prefecture/coordinates instead of recomputing them.
+function parseAppBackupJSON(json) {
+  return json.map((item, index) => {
+    const coords = item.coordinates || {};
+    const category = CATEGORIES[item.categoryKey] ? item.categoryKey : classifyCategory(item.name || "", item.comment || "");
+
+    return {
+      id: `backup-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 5)}`,
+      name: item.name || "不明なスポット",
+      address: item.address || "",
+      lat: coords.latitude !== undefined ? parseFloat(coords.latitude) : null,
+      lng: coords.longitude !== undefined ? parseFloat(coords.longitude) : null,
+      prefecture: item.prefecture || "その他・海外",
+      category: category,
+      rating: item.rating ?? null,
+      comment: item.comment || "",
+      url: item.googleMapsUrl || "",
+      source: item.source || "JSONバックアップ復元",
+      publishTime: item.publishTime || "",
+      updateTime: item.updateTime || ""
+    };
+  });
+}
 
 // Parse CSV Format
 function parseCSVData(csvText) {
@@ -1659,5 +1690,5 @@ function loadSampleData() {
 
 // Expose pure logic functions for Node-based tests (no-op in the browser).
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { classifyCategory };
+  module.exports = { classifyCategory, parseAppBackupJSON };
 }

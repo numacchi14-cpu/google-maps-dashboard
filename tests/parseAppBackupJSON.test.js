@@ -1,0 +1,59 @@
+// Stub the browser globals app.js touches at load time so it can run under Node.
+global.document = { addEventListener() {} };
+
+const { test } = require("node:test");
+const assert = require("node:assert/strict");
+const { parseAppBackupJSON } = require("../app.js");
+
+test("エクスポート形式のレコードをカテゴリー・都道府県を再計算せずそのまま復元する", () => {
+  const backup = [{
+    name: "手動でその他に直した店",
+    prefecture: "沖縄県",
+    categoryKey: "gourmet_ramen", // 元は自動判定でラーメンだったが、店名だけ見ると誤判定されうる名前
+    categoryName: "グルメ（ラーメン・麺類）",
+    address: "沖縄県那覇市1-1-1",
+    rating: 4,
+    comment: "テストコメント",
+    publishTime: "2026/01/01",
+    updateTime: "2026/02/02",
+    coordinates: { latitude: 26.2124, longitude: 127.6809 },
+    googleMapsUrl: "https://maps.google.com/?q=test",
+    source: "保存済みの場所"
+  }];
+
+  const [place] = parseAppBackupJSON(backup);
+
+  assert.equal(place.category, "gourmet_ramen");
+  assert.equal(place.prefecture, "沖縄県");
+  assert.equal(place.lat, 26.2124);
+  assert.equal(place.lng, 127.6809);
+  assert.equal(place.comment, "テストコメント");
+  assert.equal(place.url, "https://maps.google.com/?q=test");
+});
+
+test("categoryKeyが不正/欠落している場合はclassifyCategoryにフォールバックする", () => {
+  const backup = [{
+    name: "博多ラーメン一風堂",
+    prefecture: "福岡県",
+    categoryKey: "not_a_real_category",
+    address: "福岡県福岡市",
+    comment: "",
+    coordinates: { latitude: 33.6, longitude: 130.4 }
+  }];
+
+  const [place] = parseAppBackupJSON(backup);
+  assert.equal(place.category, "gourmet_ramen");
+});
+
+test("prefectureや座標が欠けている場合は既定値にフォールバックする", () => {
+  const backup = [{
+    name: "座標なしスポット",
+    categoryKey: "other",
+    comment: ""
+  }];
+
+  const [place] = parseAppBackupJSON(backup);
+  assert.equal(place.prefecture, "その他・海外");
+  assert.equal(place.lat, null);
+  assert.equal(place.lng, null);
+});
