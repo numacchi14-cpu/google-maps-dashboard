@@ -1652,7 +1652,12 @@ function loadSampleData() {
       fitMapToMarkers();
     }, 50);
     document.getElementById("header-actions").style.display = "flex";
-    
+
     showLoading(false);
   }, 1000);
+}
+
+// Expose pure logic functions for Node-based tests (no-op in the browser).
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { classifyCategory };
 }

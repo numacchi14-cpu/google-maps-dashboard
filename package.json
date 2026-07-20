@@ -1,0 +1,7 @@
+{
+  "name": "google-maps-dashboard",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  }
+}
