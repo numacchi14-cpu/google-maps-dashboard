@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Google Maps Contributions Dashboard | マイマップデータ分析</title>
+  
+  <!-- Leaflet CSS for Map -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+     crossorigin=""/>
+  
+  <!-- Main Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div class="app-container">
+    <header>
+      <div class="header-title-container">
+        <h1>Google Maps <span class="gradient-text">マイプレイス ダッシュボード</span></h1>
+        <p>クチコミや保存済みの場所のデータを読み込み、県別・業種別にビジュアライズします</p>
+      </div>
+      <div class="action-buttons" id="header-actions" style="display: none;">
+        <button class="btn" id="btn-export-csv">
+          <i data-lucide="download"></i> CSVエクスポート
+        </button>
+        <button class="btn" id="btn-export-json">
+          <i data-lucide="file-json"></i> JSONエクスポート
+        </button>
+        <button class="btn btn-danger" id="btn-reset" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: #ef4444;">
+          <i data-lucide="trash-2"></i> リセット
+        </button>
+      </div>
+    </header>
+
+    <!-- Upload Area -->
+    <div id="upload-section">
+      <div class="upload-wrapper" id="drop-zone">
+        <input type="file" id="file-input" multiple accept=".json,.geojson,.csv" style="display: none;">
+        <i data-lucide="map-pin" class="upload-icon"></i>
+        <h3 class="upload-title">Google Maps のエクスポートデータを読み込む</h3>
+        <p class="upload-subtitle">
+          Google Takeoutで取得した <strong>Saved places.json</strong>、<strong>Reviews.json</strong>、または保存したリストの <strong>CSVファイル</strong> をここにドラッグ＆ドロップするか、ファイルを選択してください。<br>
+          <span style="font-size: 0.8rem; opacity: 0.7; display: block; margin-top: 5px;">※アップロードされたデータはブラウザ内（クライアントサイド）のみで処理され、サーバーに送信されることはありません。</span>
+        </p>
+        <button class="upload-btn" id="select-file-btn">ファイルを選択する</button>
+        
+        <div class="sample-trigger-container">
+          <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.5rem;">または、サンプルデータで試してみる：</p>
+          <button class="sample-btn" id="load-sample-btn">サンプルデータをロード</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dashboard Content (hidden initially) -->
+    <div class="dashboard-grid" id="dashboard-section">
+      <!-- Main Content (Left Column) -->
+      <div class="column-main">
+        
+        <!-- Stats Summary -->
+        <div class="stats-container">
+          <div class="stat-card">
+            <div class="stat-icon">
+              <i data-lucide="map-pin"></i>
+            </div>
+            <div class="stat-info">
+              <span class="stat-value" id="stat-total-places">0</span>
+              <span class="stat-label">総スポット数</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">
+              <i data-lucide="map"></i>
+            </div>
+            <div class="stat-info">
+              <span class="stat-value" id="stat-total-prefectures">0</span>
+              <span class="stat-label">制覇した都道府県</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">
+              <i data-lucide="tag"></i>
+            </div>
+            <div class="stat-info">
+              <span class="stat-value" id="stat-top-category">-</span>
+              <span class="stat-label">最多カテゴリー</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Places List Table -->
+        <div class="glass-card table-card">
+          <div class="card-header">
+            <h3 class="card-title"><i data-lucide="list"></i> スポット一覧</h3>
+            
+            <div class="filter-row">
+              <div class="search-wrapper">
+                <i data-lucide="search" class="search-icon"></i>
+                <input type="text" id="search-box" class="search-input" placeholder="スポット名、住所、レビューを検索...">
+              </div>
+              <select id="filter-prefecture" class="select-input">
+                <option value="">すべての都道府県</option>
+              </select>
+              <select id="filter-category" class="select-input">
+                <option value="">すべてのカテゴリー</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th class="col-name" data-sort="name">スポット名 <i data-lucide="chevrons-up-down" style="width:14px;height:14px;vertical-align:middle;display:inline-block;"></i></th>
+                  <th class="col-pref" data-sort="prefecture">都道府県 <i data-lucide="chevrons-up-down" style="width:14px;height:14px;vertical-align:middle;display:inline-block;"></i></th>
+                  <th class="col-cat" data-sort="category">カテゴリー <i data-lucide="chevrons-up-down" style="width:14px;height:14px;vertical-align:middle;display:inline-block;"></i></th>
+                  <th class="col-address">住所</th>
+                  <th class="col-rating" data-sort="rating">評価 <i data-lucide="chevrons-up-down" style="width:14px;height:14px;vertical-align:middle;display:inline-block;"></i></th>
+                  <th class="review-text-cell">レビュー・メモ</th>
+                  <th class="col-pub-date" data-sort="publishTime">初投稿日 <i data-lucide="chevrons-up-down" style="width:14px;height:14px;vertical-align:middle;display:inline-block;"></i></th>
+                  <th class="col-upd-date" data-sort="updateTime">最終更新日 <i data-lucide="chevrons-up-down" style="width:14px;height:14px;vertical-align:middle;display:inline-block;"></i></th>
+                  <th class="col-actions">操作</th>
+                </tr>
+              </thead>
+              <tbody id="places-table-body">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+            
+            <div class="empty-state" id="table-empty-state" style="display: none;">
+              <i data-lucide="search-code" class="empty-state-icon"></i>
+              <h3>データが見つかりません</h3>
+              <p>検索条件やフィルターを変更してみてください。</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Sidebar Content (Right Column) -->
+      <div class="column-side">
+        
+        <!-- Interactive Map -->
+        <div class="glass-card">
+          <div class="card-header">
+            <h3 class="card-title"><i data-lucide="navigation"></i> インタラクティブ・マップ</h3>
+          </div>
+          <div id="map"></div>
+        </div>
+
+        <!-- Charts Dashboard -->
+        <div class="glass-card">
+          <div class="card-header">
+            <h3 class="card-title"><i data-lucide="pie-chart"></i> カテゴリー比率</h3>
+          </div>
+          <div class="chart-container">
+            <canvas id="category-chart"></canvas>
+          </div>
+        </div>
+
+        <div class="glass-card">
+          <div class="card-header">
+            <h3 class="card-title"><i data-lucide="bar-chart-3"></i> 都道府県別トップ10</h3>
+          </div>
+          <div class="chart-container">
+            <canvas id="prefecture-chart"></canvas>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading Screen -->
+  <div class="loading-overlay" id="loading-overlay">
+    <div class="spinner"></div>
+    <div class="loading-text">ファイルを解析中...</div>
+    <div class="loading-progress" id="loading-progress">データを読み込んでいます</div>
+  </div>
+
+  <!-- Scripts -->
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+     crossorigin=""></script>
+     
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
+  <!-- Lucide Icons -->
+  <script src="https://cdn.jsdelivr.net/npm/lucide/dist/umd/lucide.js"></script>
+  
+  <!-- Main Logic -->
+  <script src="app.js"></script>
+</body>
+</html>
