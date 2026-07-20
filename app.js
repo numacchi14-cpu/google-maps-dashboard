@@ -601,6 +601,15 @@ async function handleFiles(files) {
         // imported as generic, un-editable "CSVインポート" rows.
         if (ext === 'csv') {
           const rows = parseCSVRows(text.replace(/^﻿/, ""));
+
+          // This app's own full CSV export (exportCSV) — restore source
+          // (手動入力/etc.) and マイ都道府県／マイカテゴリー as-is instead of
+          // recomputing everything and tagging every row "CSVインポート".
+          if (isAppCSVBackup(rows)) {
+            newPlaces = newPlaces.concat(parseAppCSVBackup(rows));
+            continue;
+          }
+
           if (isManualExportCSV(rows)) {
             const result = applyManualCSVRows(rows);
             if (result) {
@@ -1085,6 +1094,81 @@ function parseAppBackupJSON(json) {
       updateTime: item.updateTime || ""
     };
   });
+}
+
+// True when a CSV's header row matches this app's own full data export
+// (exportCSV always writes a "データソース" column; ordinary Google Takeout /
+// third-party CSVs never do).
+function isAppCSVBackup(rows) {
+  return rows.length > 0 && rows[0].some(h => /^データソース$/.test(h.trim()));
+}
+
+// Restore this app's own full CSV export (exportCSV) as-is: keeps 手動入力/
+// other source values (so the 編集 icon still shows for manual entries) and
+// マイ都道府県／マイカテゴリー overrides, instead of recomputing everything
+// and tagging every row generic "CSVインポート" like a third-party CSV would
+// get. Mirrors parseAppBackupJSON, but exportCSV stores category *names*
+// (for Excel-friendliness) rather than internal keys/colors, so a custom
+// マイカテゴリー that isn't already registered in this session (e.g. a fresh
+// reload) can't be fully reconstructed from CSV alone — only its assignment
+// is lost, falling back to no override. Use the JSON export for a fully
+// lossless backup/restore.
+function parseAppCSVBackup(rows) {
+  const headers = rows[0];
+  const nameIdx = headers.findIndex(h => /^スポット名$/.test(h.trim()));
+  const prefIdx = headers.findIndex(h => /^都道府県$/.test(h.trim()));
+  const myPrefIdx = headers.findIndex(h => /^マイ都道府県$/.test(h.trim()));
+  const catIdx = headers.findIndex(h => /^カテゴリー$/.test(h.trim()));
+  const myCatIdx = headers.findIndex(h => /^マイカテゴリー$/.test(h.trim()));
+  const addressIdx = headers.findIndex(h => /^住所$/.test(h.trim()));
+  const ratingIdx = headers.findIndex(h => /^評価$/.test(h.trim()));
+  const commentIdx = headers.findIndex(h => /^レビュー・メモ$/.test(h.trim()));
+  const publishIdx = headers.findIndex(h => /^初投稿日$/.test(h.trim()));
+  const updateIdx = headers.findIndex(h => /^最終更新日$/.test(h.trim()));
+  const latIdx = headers.findIndex(h => /^緯度$/.test(h.trim()));
+  const lngIdx = headers.findIndex(h => /^経度$/.test(h.trim()));
+  const urlIdx = headers.findIndex(h => /^Googleマップリンク$/.test(h.trim()));
+  const sourceIdx = headers.findIndex(h => /^データソース$/.test(h.trim()));
+
+  const nameToKey = {};
+  Object.entries(getAllCategories()).forEach(([key, info]) => { nameToKey[info.name] = key; });
+
+  const parsed = [];
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    const name = csvField(row, nameIdx);
+    if (!name) continue;
+
+    const comment = csvField(row, commentIdx);
+    const catName = csvField(row, catIdx);
+    const category = nameToKey[catName] || classifyCategory(name, comment);
+
+    const myCatName = csvField(row, myCatIdx);
+    const myCategory = myCatName ? (nameToKey[myCatName] || null) : null;
+
+    const latRaw = csvField(row, latIdx);
+    const lngRaw = csvField(row, lngIdx);
+    const ratingRaw = csvField(row, ratingIdx);
+
+    parsed.push({
+      id: `csvbackup-${Date.now()}-${i}-${Math.random().toString(36).substr(2, 5)}`,
+      name: name,
+      address: csvField(row, addressIdx),
+      lat: latRaw ? parseFloat(latRaw) : null,
+      lng: lngRaw ? parseFloat(lngRaw) : null,
+      prefecture: csvField(row, prefIdx) || "その他・海外",
+      category: category,
+      myPrefecture: csvField(row, myPrefIdx) || null,
+      myCategory: myCategory,
+      rating: ratingRaw ? parseRatingValue(ratingRaw) : null,
+      comment: comment,
+      url: csvField(row, urlIdx),
+      source: csvField(row, sourceIdx) || "CSVインポート",
+      publishTime: csvField(row, publishIdx),
+      updateTime: csvField(row, updateIdx)
+    });
+  }
+  return parsed;
 }
 
 // Parse CSV Format
@@ -2316,5 +2400,5 @@ function loadSampleData() {
 
 // Expose pure logic functions for Node-based tests (no-op in the browser).
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { classifyCategory, parseAppBackupJSON, getAllCategories, customCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData };
+  module.exports = { classifyCategory, parseAppBackupJSON, getAllCategories, customCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup };
 }
