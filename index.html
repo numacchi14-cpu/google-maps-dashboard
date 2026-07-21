@@ -101,7 +101,16 @@
           </div>
           <div class="stat-info">
             <span class="stat-value" id="stat-top-category">-</span>
-            <span class="stat-label">最多カテゴリー</span>
+            <span class="stat-label">最多カテゴリー（Google連動）</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">
+            <i data-lucide="sparkles"></i>
+          </div>
+          <div class="stat-info">
+            <span class="stat-value" id="stat-top-my-category">-</span>
+            <span class="stat-label">最多カテゴリー（マイカテゴリー）</span>
           </div>
         </div>
       </div>
@@ -119,8 +128,11 @@
             <select id="filter-prefecture" class="select-input">
               <option value="">すべての都道府県</option>
             </select>
-            <select id="filter-category" class="select-input">
-              <option value="">すべてのカテゴリー</option>
+            <select id="filter-category-google" class="select-input" title="Google連動カテゴリーで絞り込み">
+              <option value="">すべてのGoogle連動カテゴリー</option>
+            </select>
+            <select id="filter-category-my" class="select-input" title="マイカテゴリーで絞り込み">
+              <option value="">すべてのマイカテゴリー</option>
             </select>
             <select id="filter-rating" class="select-input" title="評価で絞り込み">
               <option value="">すべての評価</option>
@@ -142,7 +154,8 @@
               <tr>
                 <th class="col-name" data-sort="name">スポット名 <i data-lucide="chevrons-up-down" style="width:14px;height:14px;vertical-align:middle;display:inline-block;"></i></th>
                 <th class="col-pref" data-sort="prefecture">都道府県 <i data-lucide="chevrons-up-down" style="width:14px;height:14px;vertical-align:middle;display:inline-block;"></i></th>
-                <th class="col-cat" data-sort="category">カテゴリー <i data-lucide="chevrons-up-down" style="width:14px;height:14px;vertical-align:middle;display:inline-block;"></i></th>
+                <th class="col-cat" data-sort="category">Google連動カテゴリー <i data-lucide="chevrons-up-down" style="width:14px;height:14px;vertical-align:middle;display:inline-block;"></i></th>
+                <th class="col-my-cat">マイカテゴリー</th>
                 <th class="col-address">住所</th>
                 <th class="col-rating" data-sort="rating">評価 <i data-lucide="chevrons-up-down" style="width:14px;height:14px;vertical-align:middle;display:inline-block;"></i></th>
                 <th class="review-text-cell">レビュー・メモ</th>
@@ -177,6 +190,10 @@
         <div class="glass-card">
           <div class="card-header">
             <h3 class="card-title"><i data-lucide="pie-chart"></i> カテゴリー比率</h3>
+            <div class="cat-axis-toggle" id="cat-axis-toggle" role="group" aria-label="カテゴリー比率の集計軸を切り替え">
+              <button type="button" class="cat-axis-toggle-btn active" data-axis="google">Google連動</button>
+              <button type="button" class="cat-axis-toggle-btn" data-axis="my">マイカテゴリー</button>
+            </div>
           </div>
           <div class="chart-container">
             <canvas id="category-chart"></canvas>
@@ -303,6 +320,8 @@
       </div>
 
       <button class="btn btn-primary" id="btn-gemini-apply" type="button"><i data-lucide="check"></i> ③ 適用する</button>
+
+      <div id="gemini-cat-result-list" class="gemini-cat-result-list"></div>
     </div>
   </div>
 

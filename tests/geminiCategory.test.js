@@ -4,24 +4,39 @@ global.document = { addEventListener() {} };
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const {
-  mapRawCategoryToKey,
+  getOrCreateGeminiCategory,
+  geminiCategories,
+  getAllCategories,
   buildGeminiCategoryPrompt,
   parseGeminiCategoryResponse,
   applyGeminiCategoryResults,
   places
 } = require("../app.js");
 
-test("mapRawCategoryToKey: Geminiが返す業種ラベルをCATEGORIESのkeywordsで12分類へマッピングする", () => {
-  assert.equal(mapRawCategoryToKey("ラーメン店"), "gourmet_ramen");
-  assert.equal(mapRawCategoryToKey("ビジネスホテル"), "lodging");
-  assert.equal(mapRawCategoryToKey("神社"), "temple");
-  assert.equal(mapRawCategoryToKey("スーパーマーケット"), "shopping");
+test("getOrCreateGeminiCategory: Geminiが返した生ラベルをそのまま名前として使う（12分類への丸め込みをしない）", () => {
+  Object.keys(geminiCategories).forEach(k => delete geminiCategories[k]);
+
+  const key = getOrCreateGeminiCategory("美容室");
+  assert.equal(key, "gemini_美容室");
+  assert.equal(geminiCategories[key].name, "美容室");
+  assert.equal(getAllCategories()[key].name, "美容室");
 });
 
-test("mapRawCategoryToKey: どのキーワードにも一致しない/空の場合はotherにフォールバックする", () => {
-  assert.equal(mapRawCategoryToKey("謎の施設"), "other");
-  assert.equal(mapRawCategoryToKey(""), "other");
-  assert.equal(mapRawCategoryToKey(null), "other");
+test("getOrCreateGeminiCategory: 同じラベルは同じキー・同じ色に集約される", () => {
+  Object.keys(geminiCategories).forEach(k => delete geminiCategories[k]);
+
+  const key1 = getOrCreateGeminiCategory("ラーメン店");
+  const key2 = getOrCreateGeminiCategory("ラーメン店");
+  assert.equal(key1, key2);
+  assert.equal(Object.keys(geminiCategories).length, 1);
+});
+
+test("getOrCreateGeminiCategory: 前後の空白は無視し、空文字/nullはnullを返す", () => {
+  Object.keys(geminiCategories).forEach(k => delete geminiCategories[k]);
+
+  assert.equal(getOrCreateGeminiCategory("  ラーメン店  "), getOrCreateGeminiCategory("ラーメン店"));
+  assert.equal(getOrCreateGeminiCategory(""), null);
+  assert.equal(getOrCreateGeminiCategory(null), null);
 });
 
 test("buildGeminiCategoryPrompt: 評価・コメントを含めず名前と住所のみを送る", () => {
@@ -62,23 +77,30 @@ test("parseGeminiCategoryResponse: id/categoryが欠けた要素は除外する"
   assert.deepEqual(results, [{ id: "p1", category: "神社" }]);
 });
 
-test("applyGeminiCategoryResults: idが一致するplaceにgoogleCategoryRawと再マッピングしたcategoryを反映する", () => {
+test("applyGeminiCategoryResults: idが一致するplaceにGeminiの回答をそのままgoogleCategoryRaw/categoryへ反映し、適用結果（UI表示用）を返す", () => {
   places.length = 0;
   places.push({ id: "p1", name: "テスト", category: "other", googleCategoryRaw: null });
 
-  const appliedCount = applyGeminiCategoryResults([{ id: "p1", category: "ラーメン店" }]);
+  const applied = applyGeminiCategoryResults([{ id: "p1", category: "美容室" }]);
 
-  assert.equal(appliedCount, 1);
-  assert.equal(places[0].googleCategoryRaw, "ラーメン店");
-  assert.equal(places[0].category, "gourmet_ramen");
+  assert.equal(applied.length, 1);
+  assert.deepEqual(applied[0], {
+    id: "p1",
+    name: "テスト",
+    rawCategory: "美容室",
+    categoryKey: "gemini_美容室",
+    categoryName: "美容室"
+  });
+  assert.equal(places[0].googleCategoryRaw, "美容室");
+  assert.equal(places[0].category, "gemini_美容室");
 });
 
-test("applyGeminiCategoryResults: 一致するidがない場合はスキップし件数に含めない", () => {
+test("applyGeminiCategoryResults: 一致するidがない場合はスキップし結果に含めない", () => {
   places.length = 0;
   places.push({ id: "p1", name: "テスト", category: "other", googleCategoryRaw: null });
 
-  const appliedCount = applyGeminiCategoryResults([{ id: "not-found", category: "ラーメン店" }]);
+  const applied = applyGeminiCategoryResults([{ id: "not-found", category: "ラーメン店" }]);
 
-  assert.equal(appliedCount, 0);
+  assert.equal(applied.length, 0);
   assert.equal(places[0].googleCategoryRaw, null);
 });

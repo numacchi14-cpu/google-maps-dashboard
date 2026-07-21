@@ -110,6 +110,33 @@ test("googleCategoryRaw（Gemini等から取得した生の業種ラベル）を
   assert.equal(unclassified.googleCategoryRaw, null);
 });
 
+test("googleCategoryRawがある場合は、保存されていたcategoryKeyより生ラベルからの再生成を優先する（自己修復・12種への丸め込みをしない）", () => {
+  const backup = [{
+    name: "美容室スポット",
+    categoryKey: "other", // 古いバージョンの丸め込みロジックで保存された値（想定）
+    googleCategoryRaw: "美容室",
+    comment: ""
+  }];
+
+  const [place] = parseAppBackupJSON(backup);
+  assert.equal(place.category, "gemini_美容室");
+  assert.equal(getAllCategories()["gemini_美容室"].name, "美容室");
+});
+
+test("myCategoryKeyがgemini_始まりの場合は、myCategoryNameからGoogle取得カテゴリーとして再登録して復元する", () => {
+  const backup = [{
+    name: "マイカテゴリーにGemini取得カテゴリーを設定した店",
+    categoryKey: "other",
+    myCategoryKey: "gemini_ラーメン店",
+    myCategoryName: "ラーメン店",
+    comment: ""
+  }];
+
+  const [place] = parseAppBackupJSON(backup);
+  assert.equal(place.myCategory, "gemini_ラーメン店");
+  assert.equal(getAllCategories()["gemini_ラーメン店"].name, "ラーメン店");
+});
+
 test("バックアップが参照する自作マイカテゴリー（標準の12種にないキー）を再登録して復元する", () => {
   const backup = [{
     name: "自作カテゴリーを付けた店",

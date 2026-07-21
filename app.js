@@ -6,9 +6,16 @@ let categoryChart = null;
 let prefectureChart = null;
 let currentSortColumn = 'name';
 let currentSortDirection = 'asc';
+// カテゴリー比率チャートの集計軸: 'google'（Google連動カテゴリー、生ラベルそのまま）
+// または 'my'（マイカテゴリー。未設定はGoogle連動にフォールバック＝従来の実効値）
+let categoryChartAxis = 'google';
 // User-created マイカテゴリー定義, keyed like CATEGORIES: { [key]: { name, color, custom: true } }.
 // Kept separate from CATEGORIES because that constant represents the fixed Google連動 taxonomy.
 let customCategories = {};
+// Gemini等から取得した「Google連動カテゴリー」の生ラベルをそのまま使うための動的カテゴリー registry。
+// key: `gemini_<ラベル>`, value: { name: ラベル, color, source: "gemini" }。
+// 固定12種に丸め込まず、ラベルの数だけ増えていく（同じラベルは同じキーに集約される）。
+let geminiCategories = {};
 // Set to a place's id while the manual-add modal is open in "edit" mode; null when adding new.
 let editingManualPlaceId = null;
 
@@ -100,23 +107,39 @@ function getEffectiveCategory(p) {
   return p.myCategory || p.category;
 }
 
-// Built-in (Google連動) categories plus any user-created マイカテゴリー, merged for
-// lookup/display purposes. myCategory may reference either.
+// Built-in (Google連動の12分類) categories plus any user-created マイカテゴリー、
+// および Gemini 等から取得した Google連動カテゴリーの生ラベルを、lookup/display用に
+// すべてマージする。category はCATEGORIES/geminiCategoriesのいずれかを、
+// myCategory はCATEGORIES/customCategories/geminiCategoriesのいずれかを参照しうる。
 function getAllCategories() {
-  return { ...CATEGORIES, ...customCategories };
+  return { ...CATEGORIES, ...customCategories, ...geminiCategories };
 }
 
-// Map a raw Google業種ラベル（Gemini/Places APIなど外部ソースからの回答文字列）を、
-// 固定12種のCATEGORIESキーへ変換する。各CATEGORIES定義の`keywords`を流用するため
-// classifyCategory（店名・コメントの正規表現ヒューリスティック）とは別の軽量な判定。
-function mapRawCategoryToKey(rawCategory) {
-  if (!rawCategory) return "other";
-  const lower = rawCategory.toLowerCase();
-  for (const [key, info] of Object.entries(CATEGORIES)) {
-    if (key === "other") continue;
-    if (info.keywords.some(k => lower.includes(k.toLowerCase()))) return key;
+// ラベル文字列から決定的な色を1つ生成する（同じラベルなら常に同じ色になる）。
+// Gemini等が返す業種ラベルは件数が読めない開放集合なので、固定パレットの割り当てではなく
+// ハッシュベースで生成する。この色は地図ピン等の個別スポット表示に使うためのもので、
+// カテゴリー比率チャートの凡例色（CVD配慮が必要な箇所）には使わない
+// （そちらはrenderChartsのtop-N＋「その他」集約ロジックで別途扱う）。
+function colorForGeminiLabel(label) {
+  let hash = 0;
+  for (let i = 0; i < label.length; i++) {
+    hash = (hash * 31 + label.charCodeAt(i)) >>> 0;
   }
-  return "other";
+  const hue = hash % 360;
+  return `hsl(${hue}, 62%, 55%)`;
+}
+
+// Geminiが返した生の業種ラベルをキーに、Google連動カテゴリーのエントリーを
+// 取得または新規作成する。同じラベルは常に同じキー・同じ色に集約される
+// （＝「Geminiのカテゴリーをそのまま使う」の実体）。
+function getOrCreateGeminiCategory(rawLabel) {
+  const label = (rawLabel || "").trim();
+  if (!label) return null;
+  const key = `gemini_${label}`;
+  if (!geminiCategories[key]) {
+    geminiCategories[key] = { name: label, color: colorForGeminiLabel(label), source: "gemini" };
+  }
+  return key;
 }
 
 function generateCustomCategoryKey() {
@@ -165,7 +188,8 @@ function setupEventListeners() {
   const loadSampleBtn = document.getElementById("load-sample-btn");
   const searchBox = document.getElementById("search-box");
   const filterPref = document.getElementById("filter-prefecture");
-  const filterCat = document.getElementById("filter-category");
+  const filterCatGoogle = document.getElementById("filter-category-google");
+  const filterCatMy = document.getElementById("filter-category-my");
   const filterRating = document.getElementById("filter-rating");
   const filterDateFrom = document.getElementById("filter-date-from");
   const filterDateTo = document.getElementById("filter-date-to");
@@ -181,6 +205,7 @@ function setupEventListeners() {
   const geminiCategoryClose = document.getElementById("gemini-category-close");
   const btnGeminiCopyPrompt = document.getElementById("btn-gemini-copy-prompt");
   const btnGeminiApply = document.getElementById("btn-gemini-apply");
+  const catAxisToggle = document.getElementById("cat-axis-toggle");
   const btnManualAdd = document.getElementById("btn-manual-add");
   const btnManualAddEmpty = document.getElementById("btn-manual-add-empty");
   const manualAddOverlay = document.getElementById("manual-add-overlay");
@@ -216,7 +241,8 @@ function setupEventListeners() {
   // Filters and Search
   searchBox.addEventListener("input", filterAndRender);
   filterPref.addEventListener("change", filterAndRender);
-  filterCat.addEventListener("change", filterAndRender);
+  filterCatGoogle.addEventListener("change", filterAndRender);
+  filterCatMy.addEventListener("change", filterAndRender);
   filterRating.addEventListener("change", filterAndRender);
   filterDateFrom.addEventListener("change", filterAndRender);
   filterDateTo.addEventListener("change", filterAndRender);
@@ -299,18 +325,47 @@ function setupEventListeners() {
   btnGeminiApply.addEventListener("click", () => {
     const responseEl = document.getElementById("gemini-cat-response");
     const statusEl = document.getElementById("gemini-cat-status");
+    const resultListEl = document.getElementById("gemini-cat-result-list");
     const results = parseGeminiCategoryResponse(responseEl.value);
     if (!results) {
       alert("JSONの形式を読み取れませんでした。Geminiの回答をそのまま貼り付けてください。");
       return;
     }
-    const appliedCount = applyGeminiCategoryResults(results);
+    const applied = applyGeminiCategoryResults(results);
     responseEl.value = "";
     setupDropdownFilters();
     filterAndRender();
     refreshGeminiCategoryModal();
     const remaining = getGeminiUnclassifiedPlaces().length;
-    statusEl.textContent = `${appliedCount}件を分類しました。` + (remaining > 0 ? ` 続けて次のバッチ（残り${remaining}件）を取得できます。` : " すべて取得済みです。");
+    statusEl.textContent = `${applied.length}件を分類しました。` + (remaining > 0 ? ` 続けて次のバッチ（残り${remaining}件）を取得できます。` : " すべて取得済みです。");
+
+    // Geminiが実際に何と答えたかをその場で確認できるように、適用結果を一覧表示する
+    resultListEl.innerHTML = "";
+    if (applied.length > 0) {
+      const heading = document.createElement("p");
+      heading.className = "gemini-cat-result-heading";
+      heading.textContent = "適用結果（Geminiの回答 → 分類されたカテゴリー）";
+      resultListEl.appendChild(heading);
+
+      const ul = document.createElement("ul");
+      applied.forEach(item => {
+        const li = document.createElement("li");
+        li.textContent = `${item.name}: 「${item.rawCategory}」 → ${item.categoryName}`;
+        ul.appendChild(li);
+      });
+      resultListEl.appendChild(ul);
+    }
+  });
+
+  // カテゴリー比率チャートの集計軸切り替え（Google連動 / マイカテゴリー）
+  catAxisToggle.addEventListener("click", (e) => {
+    const btn = e.target.closest(".cat-axis-toggle-btn");
+    if (!btn) return;
+    categoryChartAxis = btn.dataset.axis;
+    catAxisToggle.querySelectorAll(".cat-axis-toggle-btn").forEach(b => {
+      b.classList.toggle("active", b === btn);
+    });
+    filterAndRender();
   });
 
   // クチコミの手動追加 (Takeout's ~600-item export cap can leave reviews out)
@@ -377,6 +432,7 @@ function closeCategorySettings() {
 // Open/close the Gemini連携カテゴリー取得モーダル
 function openGeminiCategoryModal() {
   document.getElementById("gemini-cat-response").value = "";
+  document.getElementById("gemini-cat-result-list").innerHTML = "";
   refreshGeminiCategoryModal();
   document.getElementById("gemini-category-overlay").classList.add("active");
 }
@@ -631,6 +687,7 @@ function resetApp() {
   if (confirm("データをリセットしますか？")) {
     places = [];
     customCategories = {};
+    geminiCategories = {};
     document.getElementById("upload-section").style.display = "block";
     document.getElementById("dashboard-section").classList.remove("visible");
     setTimeout(() => {
@@ -641,7 +698,8 @@ function resetApp() {
     // Clear filters
     document.getElementById("search-box").value = "";
     document.getElementById("filter-prefecture").value = "";
-    document.getElementById("filter-category").value = "";
+    document.getElementById("filter-category-google").value = "";
+    document.getElementById("filter-category-my").value = "";
     document.getElementById("filter-rating").value = "";
     document.getElementById("filter-date-from").value = "";
     document.getElementById("filter-date-to").value = "";
@@ -1147,14 +1205,25 @@ function parseReviewsJSON(json) {
 function parseAppBackupJSON(json) {
   return json.map((item, index) => {
     const coords = item.coordinates || {};
-    const category = CATEGORIES[item.categoryKey] ? item.categoryKey : classifyCategory(item.name || "", item.comment || "");
+    // googleCategoryRawがあれば常にそこから再生成する（同じラベルは常に同じキー・同じ色に
+    // なるので自己修復的に復元できる）。なければ従来通り、固定12種のキーかヒューリスティック。
+    let category;
+    if (item.googleCategoryRaw) {
+      category = getOrCreateGeminiCategory(item.googleCategoryRaw);
+    } else if (CATEGORIES[item.categoryKey]) {
+      category = item.categoryKey;
+    } else {
+      category = classifyCategory(item.name || "", item.comment || "");
+    }
 
-    // myCategoryKey may point at a built-in category or a マイカテゴリー the user made
-    // in an earlier session; re-register the latter so it reappears in the settings
-    // modal/dropdowns instead of just silently applying to this one record.
+    // myCategoryKey may point at a built-in category, a マイカテゴリー the user made
+    // in an earlier session, or a Gemini由来のGoogle連動カテゴリーをマイカテゴリーとして
+    // 選んだもの；後者2つは再登録して、設定モーダル/ドロップダウンに再度現れるようにする。
     let myCategory = null;
     if (CATEGORIES[item.myCategoryKey]) {
       myCategory = item.myCategoryKey;
+    } else if (item.myCategoryKey && item.myCategoryKey.startsWith("gemini_") && item.myCategoryName) {
+      myCategory = getOrCreateGeminiCategory(item.myCategoryName);
     } else if (item.myCategoryKey && item.myCategoryName) {
       registerCustomCategory(item.myCategoryKey, item.myCategoryName, item.myCategoryColor);
       myCategory = item.myCategoryKey;
@@ -1449,7 +1518,7 @@ function updateManualPlaceFields(place, input) {
   // Keep the Gemini/Places由来の生カテゴリーと表示用category の対応を保つ
   // （編集で名前/住所が変わってもclassifyCategoryへ巻き戻さない）。
   if (place.googleCategoryRaw) {
-    place.category = mapRawCategoryToKey(place.googleCategoryRaw);
+    place.category = getOrCreateGeminiCategory(place.googleCategoryRaw);
   }
 }
 
@@ -1490,7 +1559,7 @@ function deduplicatePlaces(list) {
         // Google連動カテゴリーの生データも同様に、既存側が未取得のときだけ埋め合わせる
         if (!existing.googleCategoryRaw && item.googleCategoryRaw) {
           existing.googleCategoryRaw = item.googleCategoryRaw;
-          existing.category = mapRawCategoryToKey(item.googleCategoryRaw);
+          existing.category = getOrCreateGeminiCategory(item.googleCategoryRaw);
         }
       }
     }
@@ -1500,47 +1569,48 @@ function deduplicatePlaces(list) {
 }
 
 // Extract Prefecture Name from Address / Title with Coordinates Fallback
-function extractPrefecture(address, name, lat, lng) {
-  if (address || name) {
-    // Search Japanese Prefectures
-    for (const pref of PREFECTURES) {
-      if (address && address.includes(pref)) return pref;
-      if (name && name.includes(pref)) return pref;
-    }
-    
-    // Check English Prefecture names
-    const enPrefs = {
-      "Tokyo": "東京都", "Kyoto": "京都府", "Osaka": "大阪府", "Hokkaido": "北海道", "Okinawa": "沖縄県",
-      "Fukuoka": "福岡県", "Kanagawa": "神奈川県", "Chiba": "千葉県", "Saitama": "埼玉県", "Aichi": "愛知県",
-      "Hiroshima": "広島県", "Nara": "奈良県", "Hyogo": "兵庫県", "Kobe": "兵庫県", "Shizuoka": "静岡県"
-    };
-    
-    for (const [en, jp] of Object.entries(enPrefs)) {
-      const regex = new RegExp(`\\b${en}\\b`, "i");
-      if ((address && regex.test(address)) || (name && regex.test(name))) {
-        return jp;
-      }
-    }
+const EN_PREFECTURE_NAMES = {
+  "Tokyo": "東京都", "Kyoto": "京都府", "Osaka": "大阪府", "Hokkaido": "北海道", "Okinawa": "沖縄県",
+  "Fukuoka": "福岡県", "Kanagawa": "神奈川県", "Chiba": "千葉県", "Saitama": "埼玉県", "Aichi": "愛知県",
+  "Hiroshima": "広島県", "Nara": "奈良県", "Hyogo": "兵庫県", "Kobe": "兵庫県", "Shizuoka": "静岡県"
+};
 
-    // Fallback for Japan addresses without prefecture explicit (e.g. starting with "日本、")
-    if (address && (address.includes("日本") || address.startsWith("〒"))) {
-      // Try to guess from cities if address is in Japan
-      const cityGuess = [
-        { key: "横浜", pref: "神奈川県" }, { key: "名古屋", pref: "愛知県" },
-        { key: "札幌", pref: "北海道" }, { key: "仙台", pref: "宮城県" },
-        { key: "神戸", pref: "兵庫県" }, { key: "金沢", pref: "石川県" }
-      ];
-      for (const item of cityGuess) {
-        if (address.includes(item.key)) return item.pref;
-      }
+// 日本語/英語の都道府県名がテキスト中に含まれるかを調べる（住所・店名どちらにも使う共通ロジック）
+function matchPrefectureInText(text) {
+  if (!text) return null;
+  for (const pref of PREFECTURES) {
+    if (text.includes(pref)) return pref;
+  }
+  for (const [en, jp] of Object.entries(EN_PREFECTURE_NAMES)) {
+    const regex = new RegExp(`\\b${en}\\b`, "i");
+    if (regex.test(text)) return jp;
+  }
+  return null;
+}
+
+function extractPrefecture(address, name, lat, lng) {
+  // 1. 住所（最も信頼できる情報源）を最優先でチェックする。
+  const fromAddress = matchPrefectureInText(address);
+  if (fromAddress) return fromAddress;
+
+  // Fallback for Japan addresses without prefecture explicit (e.g. starting with "日本、")
+  if (address && (address.includes("日本") || address.startsWith("〒"))) {
+    // Try to guess from cities if address is in Japan
+    const cityGuess = [
+      { key: "横浜", pref: "神奈川県" }, { key: "名古屋", pref: "愛知県" },
+      { key: "札幌", pref: "北海道" }, { key: "仙台", pref: "宮城県" },
+      { key: "神戸", pref: "兵庫県" }, { key: "金沢", pref: "石川県" }
+    ];
+    for (const item of cityGuess) {
+      if (address.includes(item.key)) return item.pref;
     }
   }
 
-  // Coordinates fallback if within Japan bounding box roughly
+  // 2. 座標（住所の次に信頼できる、位置に基づく客観的な情報源）
   if (lat && lng && lat > 20 && lat < 46 && lng > 120 && lng < 150) {
     let minDistance = Infinity;
     let closestPref = "その他・海外";
-    
+
     PREFECTURE_COORDINATES.forEach(pref => {
       const dLat = pref.lat - lat;
       const dLng = pref.lng - lng;
@@ -1550,9 +1620,16 @@ function extractPrefecture(address, name, lat, lng) {
         closestPref = pref.name;
       }
     });
-    
+
     return closestPref;
   }
+
+  // 3. 店名からの推測は最後の手段にする。「北海道ラーメン」のようにご当地名を冠した
+  //    チェーン店名など、実際の所在地と無関係な地名が店名に含まれることがあるため、
+  //    住所にも座標にも都道府県が判定できなかった場合にのみ使う（回帰: 福岡の店が
+  //    店名の「北海道」だけで北海道と誤判定されていたバグの修正）。
+  const fromName = matchPrefectureInText(name);
+  if (fromName) return fromName;
 
   return "その他・海外";
 }
@@ -1685,27 +1762,37 @@ function parseGeminiCategoryResponse(text) {
     .map(item => ({ id: item.id, category: item.category.trim() }));
 }
 
-// パース済みの結果をplacesへ反映する。適用件数を返す。
+// パース済みの結果をplacesへ反映する。実際に適用できた各件について
+// { id, name, rawCategory, categoryKey, categoryName } の配列を返す
+// （呼び出し側がGeminiの回答内容そのものをUIへ表示できるように、件数だけでなく中身も渡す）。
 function applyGeminiCategoryResults(results) {
-  let appliedCount = 0;
+  const applied = [];
   results.forEach(({ id, category }) => {
     const place = places.find(p => p.id === id);
     if (!place) return;
     place.googleCategoryRaw = category;
-    place.category = mapRawCategoryToKey(category);
-    appliedCount++;
+    place.category = getOrCreateGeminiCategory(category);
+    applied.push({
+      id: place.id,
+      name: place.name,
+      rawCategory: category,
+      categoryKey: place.category,
+      categoryName: getAllCategories()[place.category]?.name || "その他"
+    });
   });
-  return appliedCount;
+  return applied;
 }
 
 // Populate dropdown filters based on loaded data
 function setupDropdownFilters() {
   const filterPref = document.getElementById("filter-prefecture");
-  const filterCat = document.getElementById("filter-category");
-  
+  const filterCatGoogle = document.getElementById("filter-category-google");
+  const filterCatMy = document.getElementById("filter-category-my");
+
   // Save current selections
   const currentPref = filterPref.value;
-  const currentCat = filterCat.value;
+  const currentCatGoogle = filterCatGoogle.value;
+  const currentCatMy = filterCatMy.value;
 
   // Prefectures set
   const loadedPrefs = new Set();
@@ -1727,21 +1814,47 @@ function setupDropdownFilters() {
     filterPref.appendChild(opt);
   });
 
-  // Populate Categories dropdown (built-in + マイカテゴリー)
-  filterCat.innerHTML = '<option value="">すべてのカテゴリー</option>';
-  Object.entries(getAllCategories()).forEach(([key, info]) => {
-    const count = places.filter(p => getEffectiveCategory(p) === key).length;
-    if (count > 0 || key === "other") {
+  // Populate category filters. Google連動とマイカテゴリーは別軸なので、それぞれ独立した
+  // ドロップダウンで絞り込めるようにする（両方指定した場合はAND条件）。
+  const allCats = getAllCategories();
+
+  // Google連動カテゴリー: p.categoryそのものを集計する（マイカテゴリーの上書きは考慮しない）
+  filterCatGoogle.innerHTML = '<option value="">すべてのGoogle連動カテゴリー</option>';
+  const googleCatCounts = {};
+  places.forEach(p => { googleCatCounts[p.category] = (googleCatCounts[p.category] || 0) + 1; });
+  Object.entries(googleCatCounts)
+    .sort((a, b) => b[1] - a[1])
+    .forEach(([key, count]) => {
       const opt = document.createElement("option");
       opt.value = key;
-      opt.textContent = `${info.name} (${count})`;
-      filterCat.appendChild(opt);
-    }
-  });
+      opt.textContent = `${allCats[key]?.name || "その他"} (${count})`;
+      filterCatGoogle.appendChild(opt);
+    });
+
+  // マイカテゴリー: 上書きされている行のみを対象にするが、「未設定」でも絞り込めるようにする
+  filterCatMy.innerHTML = '<option value="">すべてのマイカテゴリー</option>';
+  const unsetCount = places.filter(p => !p.myCategory).length;
+  if (unsetCount > 0) {
+    const unsetOpt = document.createElement("option");
+    unsetOpt.value = "__unset__";
+    unsetOpt.textContent = `未設定 (${unsetCount})`;
+    filterCatMy.appendChild(unsetOpt);
+  }
+  const myCatCounts = {};
+  places.forEach(p => { if (p.myCategory) myCatCounts[p.myCategory] = (myCatCounts[p.myCategory] || 0) + 1; });
+  Object.entries(myCatCounts)
+    .sort((a, b) => b[1] - a[1])
+    .forEach(([key, count]) => {
+      const opt = document.createElement("option");
+      opt.value = key;
+      opt.textContent = `${allCats[key]?.name || "その他"} (${count})`;
+      filterCatMy.appendChild(opt);
+    });
 
   // Restore selection
   filterPref.value = currentPref;
-  filterCat.value = currentCat;
+  filterCatGoogle.value = currentCatGoogle;
+  filterCatMy.value = currentCatMy;
 }
 
 // Filter, Sort, and Render UI
@@ -1762,7 +1875,8 @@ function matchesDateRange(dateStr, fromStr, toStr) {
 function filterAndRender() {
   const searchVal = document.getElementById("search-box").value.toLowerCase();
   const prefVal = document.getElementById("filter-prefecture").value;
-  const catVal = document.getElementById("filter-category").value;
+  const catGoogleVal = document.getElementById("filter-category-google").value;
+  const catMyVal = document.getElementById("filter-category-my").value;
   const minRating = document.getElementById("filter-rating").value ? parseInt(document.getElementById("filter-rating").value) : null;
   const dateFrom = document.getElementById("filter-date-from").value; // "YYYY-MM-DD" or ""
   const dateTo = document.getElementById("filter-date-to").value;
@@ -1774,10 +1888,12 @@ function filterAndRender() {
                         p.address.toLowerCase().includes(searchVal) ||
                         p.comment.toLowerCase().includes(searchVal);
     const matchPref = !prefVal || getEffectivePrefecture(p) === prefVal;
-    const matchCat = !catVal || getEffectiveCategory(p) === catVal;
+    // Google連動とマイカテゴリーは別軸の絞り込み（両方指定した場合はAND）
+    const matchCatGoogle = !catGoogleVal || p.category === catGoogleVal;
+    const matchCatMy = !catMyVal || (catMyVal === "__unset__" ? !p.myCategory : p.myCategory === catMyVal);
     const matchRating = !minRating || (p.rating && p.rating >= minRating);
     const matchDate = matchesDateRange(p.publishTime, dateFrom, dateTo);
-    return matchSearch && matchPref && matchCat && matchRating && matchDate;
+    return matchSearch && matchPref && matchCatGoogle && matchCatMy && matchRating && matchDate;
   });
 
   // Sort
@@ -1789,10 +1905,11 @@ function filterAndRender() {
     if (valA === null || valA === undefined) return currentSortDirection === 'asc' ? 1 : -1;
     if (valB === null || valB === undefined) return currentSortDirection === 'asc' ? -1 : 1;
 
-    // Special sorting logic (uses the effective マイ.../Google連動 value, not the raw field)
+    // Special sorting logic
     if (currentSortColumn === 'category') {
-      valA = getAllCategories()[getEffectiveCategory(a)]?.name || "";
-      valB = getAllCategories()[getEffectiveCategory(b)]?.name || "";
+      // Google連動カテゴリー列でのソートなので、マイカテゴリーの上書きは考慮しない
+      valA = getAllCategories()[a.category]?.name || "";
+      valB = getAllCategories()[b.category]?.name || "";
     }
     if (currentSortColumn === 'prefecture') {
       valA = getEffectivePrefecture(a);
@@ -1822,24 +1939,34 @@ function renderStats(filteredList) {
   const uniquePrefs = new Set(filteredList.map(p => getEffectivePrefecture(p)).filter(p => p !== "その他・海外"));
   document.getElementById("stat-total-prefectures").textContent = uniquePrefs.size;
 
-  // Top Category Calculation
-  const catCounts = {};
+  // 最多カテゴリーはGoogle連動／マイカテゴリーそれぞれ別軸で集計・表示する
+  const allCats = getAllCategories();
+
+  const googleCatCounts = {};
   filteredList.forEach(p => {
-    const cat = getEffectiveCategory(p);
-    catCounts[cat] = (catCounts[cat] || 0) + 1;
+    googleCatCounts[p.category] = (googleCatCounts[p.category] || 0) + 1;
   });
-  let topCatKey = "-";
+  document.getElementById("stat-top-category").textContent = topCategoryLabel(googleCatCounts, allCats);
+
+  // マイカテゴリーは未設定行を除いた「実際に上書きされている行」だけを集計する
+  const myCatCounts = {};
+  filteredList.forEach(p => {
+    if (p.myCategory) myCatCounts[p.myCategory] = (myCatCounts[p.myCategory] || 0) + 1;
+  });
+  document.getElementById("stat-top-my-category").textContent = topCategoryLabel(myCatCounts, allCats);
+}
+
+// { key: count } の集計から最多カテゴリーの表示ラベル（"名前 (件数)"）を作る。空ならプレースホルダー。
+function topCategoryLabel(counts, allCats) {
+  let topKey = null;
   let maxCount = 0;
-  Object.entries(catCounts).forEach(([key, val]) => {
+  Object.entries(counts).forEach(([key, val]) => {
     if (val > maxCount) {
       maxCount = val;
-      topCatKey = key;
+      topKey = key;
     }
   });
-  
-  const allCats = getAllCategories();
-  const topCatLabel = allCats[topCatKey] ? `${allCats[topCatKey].name} (${maxCount})` : "-";
-  document.getElementById("stat-top-category").textContent = topCatLabel;
+  return topKey && allCats[topKey] ? `${allCats[topKey].name} (${maxCount})` : "-";
 }
 
 // Split address into Line 1 (Country/Postcode) and Line 2 (Prefecture onwards)
@@ -1923,29 +2050,67 @@ function renderTable(filteredList) {
     prefTd.appendChild(prefSelect);
     tr.appendChild(prefTd);
 
-    // Category Edit Column (edits マイカテゴリー; falls back to Google連動判定 when unset)
+    // Google連動カテゴリー列（読み取り専用。Geminiが返した生ラベルをそのまま表示する軸）
     const catTd = document.createElement("td");
     catTd.className = "col-cat";
-    catTd.setAttribute("data-label", "カテゴリー");
-    const catSelect = document.createElement("select");
-    catSelect.className = "editable-select" + (p.myCategory ? " has-override" : "");
-    catSelect.title = p.myCategory ? "マイカテゴリーで上書き中" : "自動判定されたカテゴリー（変更するとマイカテゴリーとして保存されます）";
-    if (p.myCategory) {
-      const resetCatOpt = document.createElement("option");
-      resetCatOpt.value = "";
-      resetCatOpt.textContent = `↺ 自動判定に戻す (${CATEGORIES[p.category]?.name || "その他"})`;
-      catSelect.appendChild(resetCatOpt);
+    catTd.setAttribute("data-label", "Google連動カテゴリー");
+    const catCellInner = document.createElement("div");
+    catCellInner.className = "cat-cell-inner";
+    if (p.googleCategoryRaw) {
+      const rawBadge = document.createElement("i");
+      rawBadge.setAttribute("data-lucide", "sparkles");
+      rawBadge.className = "google-cat-raw-badge";
+      rawBadge.title = `Geminiが返した業種ラベルをそのまま使用: 「${p.googleCategoryRaw}」`;
+      catCellInner.appendChild(rawBadge);
     }
-    const builtinGroup = document.createElement("optgroup");
-    builtinGroup.label = "標準カテゴリー";
-    Object.entries(CATEGORIES).forEach(([key, info]) => {
-      const opt = document.createElement("option");
-      opt.value = key;
-      opt.textContent = info.name;
-      if (key === getEffectiveCategory(p)) opt.selected = true;
-      builtinGroup.appendChild(opt);
-    });
-    catSelect.appendChild(builtinGroup);
+    const googleCatLabel = document.createElement("span");
+    googleCatLabel.className = "google-cat-label";
+    googleCatLabel.textContent = getAllCategories()[p.category]?.name || "その他";
+    googleCatLabel.title = p.googleCategoryRaw
+      ? `Geminiが返した業種ラベルをそのまま使用: 「${p.googleCategoryRaw}」`
+      : "店名・住所からの自動判定（キーワードヒューリスティック）";
+    catCellInner.appendChild(googleCatLabel);
+    catTd.appendChild(catCellInner);
+    tr.appendChild(catTd);
+
+    // マイカテゴリー列（編集可能。未設定ならGoogle連動カテゴリーの見た目・値をそのまま引き継ぐ。
+    // 上書きしている行だけ✨バッジを表示して区別する — Google連動カテゴリー列の
+    // 「Geminiの生ラベルを示すバッジ」と同じ視覚言語を、こちらは「手動上書き」を示す用途で使う）
+    const myCatTd = document.createElement("td");
+    myCatTd.className = "col-my-cat";
+    myCatTd.setAttribute("data-label", "マイカテゴリー");
+    const myCatCellInner = document.createElement("div");
+    myCatCellInner.className = "cat-cell-inner";
+    if (p.myCategory) {
+      const overrideBadge = document.createElement("i");
+      overrideBadge.setAttribute("data-lucide", "sparkles");
+      overrideBadge.className = "google-cat-raw-badge";
+      overrideBadge.title = `マイカテゴリーで上書き中: 「${getAllCategories()[p.myCategory]?.name || ""}」`;
+      myCatCellInner.appendChild(overrideBadge);
+    }
+    const myCatSelect = document.createElement("select");
+    myCatSelect.className = "editable-select" + (p.myCategory ? " has-override" : "");
+    myCatSelect.title = p.myCategory ? "マイカテゴリーで上書き中" : "未設定（Google連動カテゴリーがそのまま使われます）";
+
+    const unsetCatOpt = document.createElement("option");
+    unsetCatOpt.value = "";
+    unsetCatOpt.textContent = getAllCategories()[p.category]?.name || "その他";
+    if (!p.myCategory) unsetCatOpt.selected = true;
+    myCatSelect.appendChild(unsetCatOpt);
+
+    // 標準12カテゴリーはもう新規の選択肢としては提供しない — Google連動カテゴリーが
+    // 実データ（Gemini取得の生ラベル）を持つようになったため、マイカテゴリーは
+    // 完全にユーザー定義（自作 + 既出のGoogle取得カテゴリー）にする方針（2026-07-21）。
+    // ただし、過去のインポート等で既に標準カテゴリーがmyCategoryとして設定されている行は、
+    // 選択肢から消えて「勝手にリセットされたように見える」ことがないよう、その行にだけ残す。
+    if (p.myCategory && CATEGORIES[p.myCategory]) {
+      const legacyOpt = document.createElement("option");
+      legacyOpt.value = p.myCategory;
+      legacyOpt.textContent = CATEGORIES[p.myCategory].name;
+      legacyOpt.selected = true;
+      myCatSelect.appendChild(legacyOpt);
+    }
+
     const customKeys = Object.keys(customCategories);
     if (customKeys.length > 0) {
       const customGroup = document.createElement("optgroup");
@@ -1954,18 +2119,34 @@ function renderTable(filteredList) {
         const opt = document.createElement("option");
         opt.value = key;
         opt.textContent = customCategories[key].name;
-        if (key === getEffectiveCategory(p)) opt.selected = true;
+        if (key === p.myCategory) opt.selected = true;
         customGroup.appendChild(opt);
       });
-      catSelect.appendChild(customGroup);
+      myCatSelect.appendChild(customGroup);
     }
-    catSelect.addEventListener("change", (e) => {
+
+    const geminiKeys = Object.keys(geminiCategories);
+    if (geminiKeys.length > 0) {
+      const geminiGroup = document.createElement("optgroup");
+      geminiGroup.label = "Google取得カテゴリー（Gemini）";
+      geminiKeys.forEach(key => {
+        const opt = document.createElement("option");
+        opt.value = key;
+        opt.textContent = geminiCategories[key].name;
+        if (key === p.myCategory) opt.selected = true;
+        geminiGroup.appendChild(opt);
+      });
+      myCatSelect.appendChild(geminiGroup);
+    }
+
+    myCatSelect.addEventListener("change", (e) => {
       p.myCategory = e.target.value || null;
       setupDropdownFilters();
       filterAndRender();
     });
-    catTd.appendChild(catSelect);
-    tr.appendChild(catTd);
+    myCatCellInner.appendChild(myCatSelect);
+    myCatTd.appendChild(myCatCellInner);
+    tr.appendChild(myCatTd);
 
     // Address Column
     const addrTd = document.createElement("td");
@@ -2115,28 +2296,38 @@ function fitMapToMarkers() {
   map.fitBounds(group.getBounds().pad(0.1));
 }
 
+// カテゴリー比率チャートの凡例に表示するスライス数の上限。Google連動カテゴリーは
+// Geminiのラベルをそのまま使うため開放集合（件数が読めない）になり得るので、
+// 際限なく凡例が伸びる／同じような色を使い回すことがないよう、件数の多い上位のみを
+// 個別スライスにし、残りは1つの「その他」スライスへ集約する。
+const MAX_CHART_CATEGORY_SLICES = 8;
+
 // Render Analytical Charts (Chart.js)
 function renderCharts(filteredList) {
   // 1. Category Chart (Doughnut)
   const allCats = getAllCategories();
   const catData = {};
-  Object.keys(allCats).forEach(k => { catData[k] = 0; });
   filteredList.forEach(p => {
-    const cat = getEffectiveCategory(p);
+    const cat = categoryChartAxis === 'my' ? getEffectiveCategory(p) : p.category;
     catData[cat] = (catData[cat] || 0) + 1;
   });
 
-  const catLabels = [];
-  const catCounts = [];
-  const catColors = [];
+  const sortedCatEntries = Object.entries(catData)
+    .filter(([, count]) => count > 0)
+    .sort((a, b) => b[1] - a[1]);
 
-  Object.entries(catData).forEach(([key, count]) => {
-    if (count > 0) {
-      catLabels.push(allCats[key].name);
-      catCounts.push(count);
-      catColors.push(allCats[key].color);
-    }
-  });
+  const topCatEntries = sortedCatEntries.slice(0, MAX_CHART_CATEGORY_SLICES);
+  const restCatCount = sortedCatEntries.slice(MAX_CHART_CATEGORY_SLICES).reduce((sum, [, count]) => sum + count, 0);
+
+  const catLabels = topCatEntries.map(([key]) => allCats[key]?.name || "その他");
+  const catCounts = topCatEntries.map(([, count]) => count);
+  const catColors = topCatEntries.map(([key]) => allCats[key]?.color || "#94a3b8");
+
+  if (restCatCount > 0) {
+    catLabels.push(`その他（上位${MAX_CHART_CATEGORY_SLICES}件以外）`);
+    catCounts.push(restCatCount);
+    catColors.push("#94a3b8");
+  }
 
   if (categoryChart) categoryChart.destroy();
   const ctxCat = document.getElementById("category-chart").getContext("2d");
@@ -2252,7 +2443,7 @@ function exportCSV() {
       escapeCSVValue(p.name),
       escapeCSVValue(p.prefecture),
       escapeCSVValue(p.myPrefecture || ""),
-      escapeCSVValue(CATEGORIES[p.category]?.name || "その他"),
+      escapeCSVValue(getAllCategories()[p.category]?.name || "その他"),
       escapeCSVValue(p.myCategory ? (getAllCategories()[p.myCategory]?.name || "") : ""),
       escapeCSVValue(p.address),
       escapeCSVValue(p.rating ? p.rating.toString() : ""),
@@ -2300,9 +2491,9 @@ function exportJSON() {
     name: p.name,
     prefecture: p.prefecture,
     categoryKey: p.category,
-    categoryName: CATEGORIES[p.category]?.name || "その他",
-    // Gemini/Places API等から取得した生の業種ラベル（12カテゴリーへの正規化前）。
-    // これを保持しておくことで、将来カテゴリー分類ロジックを見直した際も再取得なしで再マッピングできる。
+    categoryName: getAllCategories()[p.category]?.name || "その他",
+    // Gemini等から取得した生の業種ラベル。categoryKey/categoryNameはこのラベルから
+    // 決定的に再生成できる（parseAppBackupJSON参照）ため、実質的にこちらが正データ。
     googleCategoryRaw: p.googleCategoryRaw || null,
     myPrefecture: p.myPrefecture || null,
     myCategoryKey: p.myCategory || null,
@@ -2560,5 +2751,5 @@ function loadSampleData() {
 
 // Expose pure logic functions for Node-based tests (no-op in the browser).
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { classifyCategory, parseAppBackupJSON, getAllCategories, customCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, mapRawCategoryToKey, buildGeminiCategoryPrompt, parseGeminiCategoryResponse, applyGeminiCategoryResults, places };
+  module.exports = { classifyCategory, extractPrefecture, parseAppBackupJSON, getAllCategories, customCategories, geminiCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, getOrCreateGeminiCategory, buildGeminiCategoryPrompt, parseGeminiCategoryResponse, applyGeminiCategoryResults, places };
 }
