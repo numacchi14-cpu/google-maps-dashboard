@@ -90,6 +90,26 @@ test("マイ都道府県/マイカテゴリーが未設定の場合はnullに復
   assert.equal(place.myCategory, null);
 });
 
+test("googleCategoryRaw（Gemini等から取得した生の業種ラベル）を復元する。未設定ならnullにする", () => {
+  const backup = [
+    {
+      name: "Gemini分類済みの店",
+      categoryKey: "gourmet_ramen",
+      googleCategoryRaw: "ラーメン店",
+      comment: ""
+    },
+    {
+      name: "未分類の店",
+      categoryKey: "other",
+      comment: ""
+    }
+  ];
+
+  const [classified, unclassified] = parseAppBackupJSON(backup);
+  assert.equal(classified.googleCategoryRaw, "ラーメン店");
+  assert.equal(unclassified.googleCategoryRaw, null);
+});
+
 test("バックアップが参照する自作マイカテゴリー（標準の12種にないキー）を再登録して復元する", () => {
   const backup = [{
     name: "自作カテゴリーを付けた店",

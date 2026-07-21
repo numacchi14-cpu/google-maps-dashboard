@@ -978,6 +978,36 @@ tr:hover td {
   flex-wrap: wrap;
 }
 
+/* Gemini連携カテゴリー取得 Modal */
+.gemini-cat-status {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.gemini-cat-step {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.gemini-cat-step-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.gemini-cat-textarea {
+  resize: vertical;
+  min-height: 90px;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  padding: 0.75rem 1rem;
+}
+
 /* Responsive adjustments */
 @media (max-width: 1200px) {
   .dashboard-grid {

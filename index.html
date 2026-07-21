@@ -28,6 +28,9 @@
         <button class="btn" id="btn-category-settings" type="button">
           <i data-lucide="settings"></i> マイカテゴリー設定
         </button>
+        <button class="btn" id="btn-gemini-category" type="button">
+          <i data-lucide="sparkles"></i> カテゴリーをGeminiで取得
+        </button>
         <button class="btn" id="btn-export-csv">
           <i data-lucide="download"></i> CSVエクスポート
         </button>
@@ -266,6 +269,40 @@
         <button type="submit" class="btn btn-primary"><i data-lucide="plus"></i> 追加</button>
       </form>
       <div id="custom-category-list" class="custom-category-list"></div>
+    </div>
+  </div>
+
+  <!-- Gemini連携カテゴリー取得 Modal -->
+  <div class="modal-overlay" id="gemini-category-overlay">
+    <div class="glass-card modal-card">
+      <div class="card-header">
+        <h3 class="card-title"><i data-lucide="sparkles"></i> Google連動カテゴリーを取得（Gemini）</h3>
+        <button class="modal-close-btn" id="gemini-category-close" type="button" aria-label="閉じる">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <p class="modal-desc">
+        スポット名・住所のみをGeminiに渡して業種を判定してもらい、結果をこのアプリの12カテゴリーに反映します（評価・レビュー本文は送信されません）。
+        「①プロンプトをコピー」→「②Geminiに貼り付けて実行」→「③返ってきたJSONをここに貼り付けて適用」の3ステップです。件数が多い場合は複数回に分けて繰り返してください。
+      </p>
+      <p class="gemini-cat-status" id="gemini-cat-status"></p>
+
+      <div class="gemini-cat-step">
+        <div class="gemini-cat-step-header">
+          <span>① Geminiに渡すプロンプト</span>
+          <button class="btn" id="btn-gemini-copy-prompt" type="button"><i data-lucide="copy"></i> コピー</button>
+        </div>
+        <textarea id="gemini-cat-prompt" class="search-input gemini-cat-textarea" readonly rows="8" title="Geminiに渡すプロンプト" placeholder="対象スポットがありません"></textarea>
+      </div>
+
+      <div class="gemini-cat-step">
+        <div class="gemini-cat-step-header">
+          <span>② Geminiの回答（JSON）を貼り付け</span>
+        </div>
+        <textarea id="gemini-cat-response" class="search-input gemini-cat-textarea" rows="6" placeholder='[{"id": "...", "category": "ラーメン店"}, ...]'></textarea>
+      </div>
+
+      <button class="btn btn-primary" id="btn-gemini-apply" type="button"><i data-lucide="check"></i> ③ 適用する</button>
     </div>
   </div>
 

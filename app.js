@@ -106,6 +106,19 @@ function getAllCategories() {
   return { ...CATEGORIES, ...customCategories };
 }
 
+// Map a raw Google業種ラベル（Gemini/Places APIなど外部ソースからの回答文字列）を、
+// 固定12種のCATEGORIESキーへ変換する。各CATEGORIES定義の`keywords`を流用するため
+// classifyCategory（店名・コメントの正規表現ヒューリスティック）とは別の軽量な判定。
+function mapRawCategoryToKey(rawCategory) {
+  if (!rawCategory) return "other";
+  const lower = rawCategory.toLowerCase();
+  for (const [key, info] of Object.entries(CATEGORIES)) {
+    if (key === "other") continue;
+    if (info.keywords.some(k => lower.includes(k.toLowerCase()))) return key;
+  }
+  return "other";
+}
+
 function generateCustomCategoryKey() {
   return `custom_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
 }
@@ -163,6 +176,11 @@ function setupEventListeners() {
   const categorySettingsOverlay = document.getElementById("category-settings-overlay");
   const categorySettingsClose = document.getElementById("category-settings-close");
   const addCategoryForm = document.getElementById("add-category-form");
+  const btnGeminiCategory = document.getElementById("btn-gemini-category");
+  const geminiCategoryOverlay = document.getElementById("gemini-category-overlay");
+  const geminiCategoryClose = document.getElementById("gemini-category-close");
+  const btnGeminiCopyPrompt = document.getElementById("btn-gemini-copy-prompt");
+  const btnGeminiApply = document.getElementById("btn-gemini-apply");
   const btnManualAdd = document.getElementById("btn-manual-add");
   const btnManualAddEmpty = document.getElementById("btn-manual-add-empty");
   const manualAddOverlay = document.getElementById("manual-add-overlay");
@@ -262,6 +280,39 @@ function setupEventListeners() {
     filterAndRender();
   });
 
+  // Google連動カテゴリーの取得（Geminiプロンプト方式）
+  btnGeminiCategory.addEventListener("click", openGeminiCategoryModal);
+  geminiCategoryClose.addEventListener("click", closeGeminiCategoryModal);
+  geminiCategoryOverlay.addEventListener("click", (e) => {
+    if (e.target === geminiCategoryOverlay) closeGeminiCategoryModal();
+  });
+  btnGeminiCopyPrompt.addEventListener("click", async () => {
+    const promptEl = document.getElementById("gemini-cat-prompt");
+    if (!promptEl.value) return;
+    try {
+      await navigator.clipboard.writeText(promptEl.value);
+    } catch (e) {
+      promptEl.select();
+      document.execCommand("copy");
+    }
+  });
+  btnGeminiApply.addEventListener("click", () => {
+    const responseEl = document.getElementById("gemini-cat-response");
+    const statusEl = document.getElementById("gemini-cat-status");
+    const results = parseGeminiCategoryResponse(responseEl.value);
+    if (!results) {
+      alert("JSONの形式を読み取れませんでした。Geminiの回答をそのまま貼り付けてください。");
+      return;
+    }
+    const appliedCount = applyGeminiCategoryResults(results);
+    responseEl.value = "";
+    setupDropdownFilters();
+    filterAndRender();
+    refreshGeminiCategoryModal();
+    const remaining = getGeminiUnclassifiedPlaces().length;
+    statusEl.textContent = `${appliedCount}件を分類しました。` + (remaining > 0 ? ` 続けて次のバッチ（残り${remaining}件）を取得できます。` : " すべて取得済みです。");
+  });
+
   // クチコミの手動追加 (Takeout's ~600-item export cap can leave reviews out)
   btnManualAdd.addEventListener("click", () => openManualAdd());
   btnManualAddEmpty.addEventListener("click", () => openManualAdd());
@@ -321,6 +372,37 @@ function openCategorySettings() {
 
 function closeCategorySettings() {
   document.getElementById("category-settings-overlay").classList.remove("active");
+}
+
+// Open/close the Gemini連携カテゴリー取得モーダル
+function openGeminiCategoryModal() {
+  document.getElementById("gemini-cat-response").value = "";
+  refreshGeminiCategoryModal();
+  document.getElementById("gemini-category-overlay").classList.add("active");
+}
+
+function closeGeminiCategoryModal() {
+  document.getElementById("gemini-category-overlay").classList.remove("active");
+}
+
+// 未取得スポットの先頭バッチ分のプロンプトを生成してモーダルに反映する
+function refreshGeminiCategoryModal() {
+  const remaining = getGeminiUnclassifiedPlaces();
+  const statusEl = document.getElementById("gemini-cat-status");
+  const promptEl = document.getElementById("gemini-cat-prompt");
+
+  if (remaining.length === 0) {
+    statusEl.textContent = places.length === 0
+      ? "データがまだ読み込まれていません。"
+      : "未分類のスポットはありません。すべて取得済みです。";
+    promptEl.value = "";
+    geminiCategoryBatch = [];
+    return;
+  }
+
+  geminiCategoryBatch = remaining.slice(0, GEMINI_CATEGORY_BATCH_SIZE);
+  promptEl.value = buildGeminiCategoryPrompt(geminiCategoryBatch);
+  statusEl.textContent = `未取得 ${remaining.length}件中、今回のバッチは${geminiCategoryBatch.length}件です。`;
 }
 
 // Open the manual クチコミ add/edit modal. Pass an existing place to edit it
@@ -981,6 +1063,7 @@ function parseSavedPlacesGeoJSON(geojson) {
       lng: parseFloat(lng),
       prefecture: pref,
       category: cat,
+      googleCategoryRaw: null,
       myPrefecture: null,
       myCategory: null,
       rating: rating,
@@ -1045,6 +1128,7 @@ function parseReviewsJSON(json) {
       lng: lng,
       prefecture: pref,
       category: cat,
+      googleCategoryRaw: null,
       myPrefecture: null,
       myCategory: null,
       rating: rating,
@@ -1084,6 +1168,7 @@ function parseAppBackupJSON(json) {
       lng: coords.longitude !== undefined ? parseFloat(coords.longitude) : null,
       prefecture: item.prefecture || "その他・海外",
       category: category,
+      googleCategoryRaw: item.googleCategoryRaw || null,
       myPrefecture: item.myPrefecture || null,
       myCategory: myCategory,
       rating: item.rating ?? null,
@@ -1158,6 +1243,7 @@ function parseAppCSVBackup(rows) {
       lng: lngRaw ? parseFloat(lngRaw) : null,
       prefecture: csvField(row, prefIdx) || "その他・海外",
       category: category,
+      googleCategoryRaw: null,
       myPrefecture: csvField(row, myPrefIdx) || null,
       myCategory: myCategory,
       rating: ratingRaw ? parseRatingValue(ratingRaw) : null,
@@ -1220,6 +1306,7 @@ function parseCSVData(csvText) {
       lng: lng && !isNaN(lng) ? lng : null,
       prefecture: pref,
       category: cat,
+      googleCategoryRaw: null,
       myPrefecture: null,
       myCategory: null,
       rating: rating,
@@ -1340,6 +1427,7 @@ function addManualPlace(input) {
   const newPlace = {
     id: `manual-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
     ...buildManualPlaceFields(input),
+    googleCategoryRaw: null,
     myPrefecture: null,
     myCategory: null,
     source: "手動入力"
@@ -1358,6 +1446,11 @@ function addManualPlace(input) {
 // Google連動 axis (prefecture/category) is recomputed from the edited name/address.
 function updateManualPlaceFields(place, input) {
   Object.assign(place, buildManualPlaceFields(input));
+  // Keep the Gemini/Places由来の生カテゴリーと表示用category の対応を保つ
+  // （編集で名前/住所が変わってもclassifyCategoryへ巻き戻さない）。
+  if (place.googleCategoryRaw) {
+    place.category = mapRawCategoryToKey(place.googleCategoryRaw);
+  }
 }
 
 // Deduplicate places list
@@ -1394,6 +1487,11 @@ function deduplicatePlaces(list) {
         // only fill it in if the existing record doesn't have one yet.
         if (!existing.myPrefecture && item.myPrefecture) existing.myPrefecture = item.myPrefecture;
         if (!existing.myCategory && item.myCategory) existing.myCategory = item.myCategory;
+        // Google連動カテゴリーの生データも同様に、既存側が未取得のときだけ埋め合わせる
+        if (!existing.googleCategoryRaw && item.googleCategoryRaw) {
+          existing.googleCategoryRaw = item.googleCategoryRaw;
+          existing.category = mapRawCategoryToKey(item.googleCategoryRaw);
+        }
       }
     }
   });
@@ -1539,6 +1637,65 @@ function classifyCategory(name, comment) {
   }
 
   return "other";
+}
+
+// --- Google連動カテゴリーのGemini取得（プロンプト方式） ---
+// スポット名・住所のみをプロンプト化してユーザーがGeminiに貼り付け→結果を貼り戻す方式。
+// 評価・レビュー本文は個人的な感想を含むため送信対象から除外する（プライバシー配慮）。
+const GEMINI_CATEGORY_BATCH_SIZE = 50;
+// 現在プロンプトに含まれているバッチ（"適用する"時にどのidが対象かの参照用）
+let geminiCategoryBatch = [];
+
+// 差分方式の対象：Google連動カテゴリーの生データをまだ取得していないスポットのみ
+function getGeminiUnclassifiedPlaces() {
+  return places.filter(p => !p.googleCategoryRaw);
+}
+
+function buildGeminiCategoryPrompt(batchPlaces) {
+  const items = batchPlaces.map(p => ({ id: p.id, name: p.name, address: p.address || "" }));
+  return [
+    "以下は日本国内外のスポット（店舗・施設）の名前と住所のリストです。",
+    "それぞれについて、Googleマップ上での実際の業種・カテゴリーを日本語の短い単語（例:「ラーメン店」「ホテル」「神社」「美容室」など）で判定してください。",
+    "出力は説明文を一切含めず、以下の形式のJSON配列のみを返してください（コードブロックも不要です）。",
+    '[{"id": "対象と同じid", "category": "業種名"}, ...]',
+    "",
+    "対象リスト:",
+    JSON.stringify(items, null, 2)
+  ].join("\n");
+}
+
+// Geminiの回答テキストをパースする。```json ... ``` のコードフェンス付きでも許容する。
+// 配列でない/JSONとして壊れている場合はnullを返す。
+function parseGeminiCategoryResponse(text) {
+  if (!text) return null;
+  let cleaned = text.trim();
+  const fenceMatch = cleaned.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  if (fenceMatch) cleaned = fenceMatch[1].trim();
+
+  let data;
+  try {
+    data = JSON.parse(cleaned);
+  } catch (e) {
+    return null;
+  }
+  if (!Array.isArray(data)) return null;
+
+  return data
+    .filter(item => item && typeof item.id === "string" && typeof item.category === "string" && item.category.trim())
+    .map(item => ({ id: item.id, category: item.category.trim() }));
+}
+
+// パース済みの結果をplacesへ反映する。適用件数を返す。
+function applyGeminiCategoryResults(results) {
+  let appliedCount = 0;
+  results.forEach(({ id, category }) => {
+    const place = places.find(p => p.id === id);
+    if (!place) return;
+    place.googleCategoryRaw = category;
+    place.category = mapRawCategoryToKey(category);
+    appliedCount++;
+  });
+  return appliedCount;
 }
 
 // Populate dropdown filters based on loaded data
@@ -2144,6 +2301,9 @@ function exportJSON() {
     prefecture: p.prefecture,
     categoryKey: p.category,
     categoryName: CATEGORIES[p.category]?.name || "その他",
+    // Gemini/Places API等から取得した生の業種ラベル（12カテゴリーへの正規化前）。
+    // これを保持しておくことで、将来カテゴリー分類ロジックを見直した際も再取得なしで再マッピングできる。
+    googleCategoryRaw: p.googleCategoryRaw || null,
     myPrefecture: p.myPrefecture || null,
     myCategoryKey: p.myCategory || null,
     myCategoryName: p.myCategory ? (getAllCategories()[p.myCategory]?.name || null) : null,
@@ -2400,5 +2560,5 @@ function loadSampleData() {
 
 // Expose pure logic functions for Node-based tests (no-op in the browser).
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { classifyCategory, parseAppBackupJSON, getAllCategories, customCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup };
+  module.exports = { classifyCategory, parseAppBackupJSON, getAllCategories, customCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, mapRawCategoryToKey, buildGeminiCategoryPrompt, parseGeminiCategoryResponse, applyGeminiCategoryResults, places };
 }
