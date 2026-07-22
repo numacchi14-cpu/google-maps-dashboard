@@ -1522,6 +1522,11 @@ function updateManualPlaceFields(place, input) {
   }
 }
 
+// "YYYY/MM/DD" と "YYYY-MM-DD" のどちらでも文字列の大小比較で新旧判定できるよう区切り文字を揃える
+function normalizeDateForCompare(dateStr) {
+  return (dateStr || "").replace(/\//g, "-");
+}
+
 // Deduplicate places list
 function deduplicatePlaces(list) {
   const unique = [];
@@ -1549,18 +1554,38 @@ function deduplicatePlaces(list) {
         return false;
       });
       if (existing) {
-        if (!existing.comment && item.comment) existing.comment = item.comment;
-        if (!existing.rating && item.rating) existing.rating = item.rating;
-        if (!existing.address && item.address) existing.address = item.address;
-        // Never let a fresh import overwrite a manual マイ都道府県/マイカテゴリー override;
-        // only fill it in if the existing record doesn't have one yet.
+        // Googleマップ側でレビュー本文・評価が編集されると、Takeoutの再エクスポートで
+        // 最終更新日（updateTime）が新しくなって返ってくる。手動入力レコード以外は、
+        // 取り込みデータの方が新しければGoogle由来フィールドを追従上書きする。
+        // 手動入力（source: "手動入力"）はユーザーが直接編集したデータなので対象外。
+        const incomingIsNewer = existing.source !== "手動入力" && item.updateTime &&
+          (!existing.updateTime || normalizeDateForCompare(item.updateTime) > normalizeDateForCompare(existing.updateTime));
+
+        if (incomingIsNewer) {
+          if (item.comment) existing.comment = item.comment;
+          if (item.rating) existing.rating = item.rating;
+          if (item.address) existing.address = item.address;
+          if (item.prefecture) existing.prefecture = item.prefecture;
+          existing.updateTime = item.updateTime;
+          if (item.googleCategoryRaw) {
+            existing.googleCategoryRaw = item.googleCategoryRaw;
+            existing.category = getOrCreateGeminiCategory(item.googleCategoryRaw);
+          }
+        } else {
+          if (!existing.comment && item.comment) existing.comment = item.comment;
+          if (!existing.rating && item.rating) existing.rating = item.rating;
+          if (!existing.address && item.address) existing.address = item.address;
+          // Google連動カテゴリーの生データも同様に、既存側が未取得のときだけ埋め合わせる
+          if (!existing.googleCategoryRaw && item.googleCategoryRaw) {
+            existing.googleCategoryRaw = item.googleCategoryRaw;
+            existing.category = getOrCreateGeminiCategory(item.googleCategoryRaw);
+          }
+        }
+
+        // マイ都道府県/マイカテゴリーは常にユーザー編集を優先し、未設定の場合のみ埋め合わせる
+        // （Google側の更新日に関わらず、フレッシュな取り込みで上書きされることはない）。
         if (!existing.myPrefecture && item.myPrefecture) existing.myPrefecture = item.myPrefecture;
         if (!existing.myCategory && item.myCategory) existing.myCategory = item.myCategory;
-        // Google連動カテゴリーの生データも同様に、既存側が未取得のときだけ埋め合わせる
-        if (!existing.googleCategoryRaw && item.googleCategoryRaw) {
-          existing.googleCategoryRaw = item.googleCategoryRaw;
-          existing.category = getOrCreateGeminiCategory(item.googleCategoryRaw);
-        }
       }
     }
   });
@@ -2751,5 +2776,5 @@ function loadSampleData() {
 
 // Expose pure logic functions for Node-based tests (no-op in the browser).
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { classifyCategory, extractPrefecture, parseAppBackupJSON, getAllCategories, customCategories, geminiCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, getOrCreateGeminiCategory, buildGeminiCategoryPrompt, parseGeminiCategoryResponse, applyGeminiCategoryResults, places };
+  module.exports = { classifyCategory, extractPrefecture, parseAppBackupJSON, getAllCategories, customCategories, geminiCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, getOrCreateGeminiCategory, buildGeminiCategoryPrompt, parseGeminiCategoryResponse, applyGeminiCategoryResults, deduplicatePlaces, places };
 }

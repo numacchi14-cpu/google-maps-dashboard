@@ -1,6 +1,6 @@
 # Google Maps マイプレイス ダッシュボード 仕様書
 
-最終更新: 2026-07-21
+最終更新: 2026-07-22
 現状のコード（`index.html` / `app.js` / `style.css`）を読み込んで作成。
 これまで Antigravity（Gemini）で開発 → Claude へ引き継ぎ検討中。
 
@@ -24,7 +24,9 @@ Google Takeout でエクスポートした「保存済みの場所」「クチ�
 - パーサーはフォーマットゆらぎに強い「ロバスト抽出」方式：
   - 名前・住所・URL・コメント・評価・投稿日／更新日を、複数パターンのキー名（日本語/英語、ネスト構造含む）から総当たりで探索
   - Saved Places GeoJSON、Reviews JSON（配列 / `{reviews:[...]}` ラップ両対応）、CSV（ヘッダー名から列を推定）をそれぞれ専用パーサーで処理
-- 取り込み後、URL／座標／名前+住所をキーに重複排除（`deduplicatePlaces`）。重複時はコメントや評価が空の方を埋め合わせてマージ。マイ都道府県／マイカテゴリー（後述）は再インポートで上書きされず、未設定の場合のみ埋め合わせる
+- 取り込み後、URL／座標／名前+住所をキーに重複排除（`deduplicatePlaces`）。マイ都道府県／マイカテゴリー（後述）は再インポートで上書きされず、未設定の場合のみ埋め合わせる
+  - **重複時のマージ方針（2026-07-22実装）**：Googleマップ側でレビュー本文・評価を編集すると、Takeout再エクスポート時に「最終更新日」（`updateTime`）が更新されて返ってくる。この性質を利用し、既存レコードより取り込みデータの`updateTime`が新しい場合は、コメント・評価・住所・都道府県・`updateTime`・Google連動カテゴリー（`googleCategoryRaw`/`category`）を新データで**追従上書き**する。取り込みデータの方が同じか古い場合は、従来通り「既存が空欄の項目だけ埋める」方式に留める。**手動入力**（`source: "手動入力"`）レコードはこの追従上書きの対象外（ユーザーが直接編集したデータのため）。マイ都道府県／マイカテゴリーは`updateTime`に関わらず常に「未設定の場合のみ埋め合わせ」で、ユーザーの手動上書きを保護する
+  - 背景：Google Takeoutは直近600件程度までしかエクスポートできない制限があるため、このアプリでデータを蓄積し続けること自体に価値がある。単純な「新データで全置換」ではなく「追加＋条件付き追従マージ」にすることで、蓄積（600件を超えた古いデータの保持）とGoogle側の編集追従を両立させている
 - **クチコミの手動追加・編集**: Takeoutのエクスポート漏れ（600件上限等）を補うためのモーダルフォーム。スポット名のみ必須、住所・評価・コメント・投稿日・Googleマップリンク・緯度経度（`35.6586, 139.7454`形式のペースト対応）は任意。既存の手動入力エントリは一覧の編集アイコンから再編集可能
 - **手動入力データのCSV一括編集**: 手動入力（`source: "手動入力"`）のみを対象にCSVエクスポート／インポート。IDが一致する行は上書き、不一致・空欄は新規追加として扱う
 
@@ -83,10 +85,11 @@ Google Takeout でエクスポートした「保存済みの場所」「クチ�
 - **状態はメモリ上のみ**：リロードで全データが消える（永続化なし、localStorage等未使用）
 - **外部CDN依存**：オフライン環境や配布用アプリ化の際は、Leaflet/Chart.js/Lucide/フォントをローカル同梱する必要あり
 - **カテゴリー分類は正規表現ベースのヒューリスティック**：厳密なNLPではないため、新しい店名パターンに弱い可能性がある（手動編集で救済可能な設計にはなっている）
-- **重複排除ロジック**は完全ではない（URL/座標/名前ベースの近似マッチ）
+- **重複排除ロジック**は完全ではない（URL/座標/名前ベースの近似マッチ）。重複と判定された場合のマージ挙動（`updateTime`が新しい取り込みはGoogle由来フィールドを追従上書き）は2.1節を参照
+- **Google連動フィールドの追従上書きは`updateTime`頼み**：Takeout側が`updateTime`を正しく返さない/欠落しているケースでは新旧判定ができず、従来通り「空欄埋めのみ」にフォールバックする（＝Google側の編集を見逃す可能性が残る）。日付を見ない「常に新データで上書き」方式は採用していない（手動入力レコードとの区別を`source`だけに頼る設計との相性を優先したため）
 - **CSVは完全な無劣化バックアップ形式ではない**：メイン画面のCSVエクスポート（`exportCSV`）はカテゴリー・マイカテゴリーを内部キーではなく表示名で書き出す（Excelでの可読性を優先した設計）。再インポート時（`parseAppCSVBackup`）は表示名→キーの逆引きで復元するため、**既に登録済み／標準12種のカテゴリーは問題なく復元できる**が、**まだ一度も作成していない独自マイカテゴリー名・Google取得カテゴリー（Gemini）名だけは色情報が無く復元できず、その行は上書きなしにフォールバックする**。同様に、Geminiで取得した`googleCategoryRaw`（生の業種ラベル）もCSVには列として出力していないため、CSVだけを介した再読み込みでは失われる（既存の在メモリレコードとの再統合時は埋め合わせで保護されるが、ブラウザ再読み込み後にCSVのみから復元する場合は再取得が必要）。完全に無劣化でバックアップ・復元したい場合は必ずJSONエクスポートを使うこと（`parseAppBackupJSON`は`categoryKey`・`googleCategoryRaw`等キー情報ごと保持し、再インポート時は`googleCategoryRaw`から`category`を再生成するためこの制約がない）
 - **Google連動カテゴリー（Gemini取得分）の色はブランドカラーではなく、ラベル文字列から決定的に生成した色**（`colorForGeminiLabel`、HSLハッシュ）：地図ピン等の個別表示用としては十分だが、カテゴリー比率チャートの配色そのものについてはCVD（色覚特性）配慮のバリデーションは行っていない（開放集合のラベルに対して固定の検証済みパレットを割り当てるのが難しいため）。チャートの凡例が際限なく伸びないよう上位8件＋「その他」に集約する対策のみ実施（2.3節）
-- テストは `tests/`（Node標準 `node --test`、`npm test`で実行）に `classifyCategory`／`extractPrefecture`／`parseAppBackupJSON`／`buildManualPlaceFields`／`matchesDateRange`／`parseCoordinatePair`／`parseCSVRows`／`parseAppCSVBackup`／`getOrCreateGeminiCategory`・`buildGeminiCategoryPrompt`・`parseGeminiCategoryResponse`・`applyGeminiCategoryResults`（`tests/geminiCategory.test.js`）の分が存在（2026-07-20〜21）。それ以外のロジックはまだ未カバー
+- テストは `tests/`（Node標準 `node --test`、`npm test`で実行）に `classifyCategory`／`extractPrefecture`／`parseAppBackupJSON`／`buildManualPlaceFields`／`matchesDateRange`／`parseCoordinatePair`／`parseCSVRows`／`parseAppCSVBackup`／`getOrCreateGeminiCategory`・`buildGeminiCategoryPrompt`・`parseGeminiCategoryResponse`・`applyGeminiCategoryResults`（`tests/geminiCategory.test.js`）／`deduplicatePlaces`の分が存在（2026-07-20〜22）。それ以外のロジックはまだ未カバー
 - READMEはまだ存在しない
 
 ## 5. 今後の要望・ロードマップ
@@ -193,6 +196,11 @@ Google Takeout でエクスポートした「保存済みの場所」「クチ�
   - ユーザー報告：「福岡市博多区にある『北海道ラーメン』という店が、店名の『北海道』のせいで都道府県が北海道と登録されてしまう」
   - 原因：`extractPrefecture`が都道府県を1件ずつ順番にチェックする際、各都道府県について「住所に含まれるか」と「店名に含まれるか」を同時にチェックしていたため、`PREFECTURES`配列の先頭にある「北海道」という都道府県名がたまたま店名に含まれているだけで、本来の住所（福岡県）を一度も確認しないまま北海道と誤判定していた
   - 住所を全都道府県分チェックし終えるまでは店名を一切見ないように順序を修正（住所 → 座標 → 店名、の優先順位を明確化）。店名からの推測は、住所にも座標にも都道府県情報が無い場合の最終手段としてのみ使う。回帰テストを`tests/extractPrefecture.test.js`に追加
+- [x] Googleマップ側でレビュー・評価が編集された場合に、再インポートでその変更に追従できるようにしたい（2026-07-22実装）
+  - ユーザーからの相談：Google Takeoutは直近600件程度しかエクスポートできない制限があるため、このアプリでデータを蓄積し続けること自体に価値がある。一方でGoogle側でレビュー本文や評価を後から編集すると、再エクスポート時に最終更新日（`updateTime`）が変わって返ってくるため、単純な「空欄埋めのみ」のマージでは編集内容に追従できない、という課題
+  - 「完璧な判定方法は個人開発の範囲では追求しすぎず、まず妥当な方針で実装し、要望が出たら調整する」という方針をユーザーと合意
+  - `deduplicatePlaces`のマージ処理を変更：既存レコードより取り込みデータの`updateTime`が新しい場合は、コメント・評価・住所・都道府県・Google連動カテゴリー（`googleCategoryRaw`/`category`）を新データで追従上書きする。同じか古い場合は従来通り空欄埋めのみ。手動入力レコードは対象外、マイ都道府県／マイカテゴリーは`updateTime`に関わらず常にユーザー編集を保護（未設定時のみ埋め合わせ）。詳細は2.1節・4節
+  - 回帰テストを`tests/deduplicatePlaces.test.js`に追加（追従上書き／据え置き／手動入力の除外／マイ軸保護／別レコード扱いのケースをカバー）
 
 ## 6. 実装の進め方（フェーズ）
 
@@ -208,5 +216,14 @@ Google Takeout でエクスポートした「保存済みの場所」「クチ�
 | 2 | Google Drive連携（OAuth、保存・読み込み） | 未着手 |
 | 3 | オフラインキャッシュ設計（IndexedDB、端末ごとのON/OFF設定） | 未着手 |
 | 4 | PWA本実装（マニフェスト＋Service Worker、オフライン対応込み） | 未着手 |
+
+**次回セッション開始時のTODO（2026-07-22時点）**
+- フェーズ2（Google Drive連携）着手で合意済み。Google連動カテゴリーのPlaces API方式（選択肢a）は引き続き後回しでよいことも確認済み
+- ホスティングはGitHub Pages想定で合意（リポジトリ: numacchi14-cpu/google-maps-dashboard、リモート設定済み）
+- 着手前にユーザー側で完了させる必要がある準備（Claudeからは実行不可）:
+  1. GitHub Pagesの有効化（Settings → Pages。公開URLが確定する）
+  2. Google Cloud ConsoleでOAuthクライアント登録（承認済みJavaScriptオリジンに上記Pages URLを追加、個人利用は「テストモード」のままでOK）
+  3. スコープはdrive.fileに限定する方針（既述）
+- 上記1・2が完了し、Pages URL・クライアントIDが揃ったら、コード側のOAuth連携実装（Google Identity Services導入、トークン取得、Drive REST APIでの保存/読み込み）に着手する
 
 <!-- 以下、追加の要望をここに書き足していってください -->
