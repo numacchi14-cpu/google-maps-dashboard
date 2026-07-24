@@ -725,6 +725,7 @@ async function handleFiles(files) {
   let manualImportHappened = false;
   let manualAdded = 0;
   let manualUpdated = 0;
+  let unresolvedMyCategoryNames = [];
 
   // The whole body runs under try/finally so showLoading(false) always fires,
   // even if something downstream of parsing (e.g. dedup/render) throws on
@@ -752,7 +753,11 @@ async function handleFiles(files) {
           // (手動入力/etc.) and マイ都道府県／マイカテゴリー as-is instead of
           // recomputing everything and tagging every row "CSVインポート".
           if (isAppCSVBackup(rows)) {
-            newPlaces = newPlaces.concat(parseAppCSVBackup(rows));
+            const restored = parseAppCSVBackup(rows);
+            newPlaces = newPlaces.concat(restored);
+            if (restored.unresolvedMyCategoryNames && restored.unresolvedMyCategoryNames.length > 0) {
+              unresolvedMyCategoryNames = unresolvedMyCategoryNames.concat(restored.unresolvedMyCategoryNames);
+            }
             continue;
           }
 
@@ -792,6 +797,13 @@ async function handleFiles(files) {
 
     if (manualImportHappened) {
       alert(`手動入力データとして復元しました（新規${manualAdded}件・更新${manualUpdated}件）。`);
+    }
+
+    if (unresolvedMyCategoryNames.length > 0) {
+      alert(
+        `マイカテゴリー ${summarizeUnresolvedMyCategoryNames(unresolvedMyCategoryNames)} は未登録のため反映されませんでした。\n` +
+        `先に「マイカテゴリー設定」で作成してから、もう一度CSVを読み込んでください。`
+      );
     }
   } catch (e) {
     console.error("Unexpected error while importing files:", e);
@@ -1294,6 +1306,11 @@ function parseAppCSVBackup(rows) {
   Object.entries(getAllCategories()).forEach(([key, info]) => { nameToKey[info.name] = key; });
 
   const parsed = [];
+  // Names typed into the マイカテゴリー column that don't match any category
+  // this app currently knows about (no color info to reconstruct them from,
+  // per the CSV round-trip limitation in SPEC.md §4) — one entry per affected
+  // row, so the caller can tell the user exactly what silently didn't apply.
+  const unresolvedMyCategoryNames = [];
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
     const name = csvField(row, nameIdx);
@@ -1304,7 +1321,14 @@ function parseAppCSVBackup(rows) {
     const category = nameToKey[catName] || classifyCategory(name, comment);
 
     const myCatName = csvField(row, myCatIdx);
-    const myCategory = myCatName ? (nameToKey[myCatName] || null) : null;
+    let myCategory = null;
+    if (myCatName) {
+      if (nameToKey[myCatName]) {
+        myCategory = nameToKey[myCatName];
+      } else {
+        unresolvedMyCategoryNames.push(myCatName);
+      }
+    }
 
     const latRaw = csvField(row, latIdx);
     const lngRaw = csvField(row, lngIdx);
@@ -1329,7 +1353,22 @@ function parseAppCSVBackup(rows) {
       updateTime: csvField(row, updateIdx)
     });
   }
+  // Attached to the array (not a {places, warnings} wrapper) so every
+  // existing caller/test that treats the return value as a plain places
+  // array keeps working unchanged; callers that care can opt in via this.
+  parsed.unresolvedMyCategoryNames = unresolvedMyCategoryNames;
   return parsed;
+}
+
+// Turns a flat list of unresolved マイカテゴリー names (one entry per
+// affected row, possibly with duplicates across several imported files)
+// into a human-readable summary for the post-import warning, e.g.
+// 「ラーメン」(2件)、「よく行く店」(1件)
+function summarizeUnresolvedMyCategoryNames(names) {
+  if (!names || names.length === 0) return "";
+  const counts = {};
+  names.forEach(n => { counts[n] = (counts[n] || 0) + 1; });
+  return Object.entries(counts).map(([name, count]) => `「${name}」(${count}件)`).join("、");
 }
 
 // Parse CSV Format
@@ -2948,5 +2987,5 @@ function loadSampleData() {
 
 // Expose pure logic functions for Node-based tests (no-op in the browser).
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { classifyCategory, extractPrefecture, parseAppBackupJSON, getAllCategories, customCategories, geminiCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, getOrCreateGeminiCategory, buildGeminiCategoryPrompt, parseGeminiCategoryResponse, applyGeminiCategoryResults, deduplicatePlaces, places };
+  module.exports = { classifyCategory, extractPrefecture, parseAppBackupJSON, getAllCategories, customCategories, geminiCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, summarizeUnresolvedMyCategoryNames, getOrCreateGeminiCategory, buildGeminiCategoryPrompt, parseGeminiCategoryResponse, applyGeminiCategoryResults, deduplicatePlaces, places };
 }
