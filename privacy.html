@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>プライバシーポリシー | G-MAP Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="doc-container">
+    <a href="index.html" class="doc-back-link">← アプリに戻る</a>
+
+    <div class="doc-header">
+      <h1>プライバシーポリシー</h1>
+    </div>
+    <p class="doc-updated">最終更新日: 2026年7月24日</p>
+
+    <div class="doc-content">
+      <h2>このポリシーについて</h2>
+      <p>
+        本ページは、「G-MAP Dashboard」（Google Maps マイプレイス ダッシュボード。以下「本アプリ」）における、
+        利用者の情報の取り扱いについて説明するものです。本アプリは個人が開発・運営する無料の個人開発ツールです。
+      </p>
+
+      <h2>運営者・お問い合わせ先</h2>
+      <p>
+        運営者: 本アプリの開発者（個人）<br>
+        お問い合わせ先: <a href="mailto:numacchi14@gmail.com">numacchi14@gmail.com</a>
+      </p>
+
+      <h2>本アプリの基本的な仕組み</h2>
+      <p>
+        本アプリは<strong>完全にお使いのブラウザ内（クライアントサイド）だけで動作</strong>します。
+        Google Takeoutでエクスポートしたファイル（保存済みの場所・クチコミのJSON/CSV）をアップロードしても、
+        そのデータが本アプリの運営者や、運営者が管理するサーバーに送信されることは一切ありません。
+        本アプリにはそもそもサーバー・データベースが存在しません。
+      </p>
+      <p>
+        読み込んだデータは、ブラウザのメモリ上にのみ保持されます。ページを閉じたりリロードしたりすると、
+        Googleドライブに保存していない限り、そのデータは消えます（永続化はご自身のGoogleドライブ経由でのみ行われます。下記参照）。
+      </p>
+
+      <h2>Googleドライブ連携について</h2>
+      <p>
+        本アプリは、ご自身のデータをGoogleドライブに保存・読み込みできる「Googleドライブと連携」機能を提供しています。
+        この機能は、Google Identity Servicesを通じた通常のGoogleログイン（OAuth 2.0）で実現しており、以下の点にご留意ください。
+      </p>
+      <ul>
+        <li>要求するアクセス権限（スコープ）は <code>drive.file</code> のみです。これは「本アプリが作成したファイルにしかアクセスできない」という、Googleドライブ全体へのアクセスよりもかなり限定的な権限です。本アプリは、ご自身のドライブ内にある他のファイルを閲覧・変更することは一切できません。</li>
+        <li>連携すると、本アプリが作成した1つのバックアップファイル（<code>g-map-dashboard-backup.json</code>）をご自身のドライブ内から検索し、読み込み・書き込みを行います。</li>
+        <li>このやり取りは、お使いのブラウザとGoogleのサーバーとの間で直接行われます。本アプリの運営者がこのデータを閲覧したり、保存したりすることはありません（運営者が管理するサーバー自体が存在しないためです）。</li>
+        <li>保存されるファイルの内容は、スポット名・住所・緯度経度・カテゴリー・評価・クチコミ本文・投稿日など、利用者ご自身が取り込み・入力したデータです。</li>
+        <li>アクセストークンはブラウザのメモリ上にのみ一時的に保持され、ページを閉じると失われます（保存や送信は行われません）。</li>
+      </ul>
+
+      <h2>Cookie・広告について</h2>
+      <p>
+        本アプリは現時点では、Cookieや広告を使用していません。将来的に広告配信サービス（Google AdSense等）を導入する場合は、
+        その際に本ページを更新し、使用するCookieの種類や目的について改めて説明します。
+      </p>
+
+      <h2>外部サービス（CDN）について</h2>
+      <p>
+        本アプリは、地図・グラフ・アイコン・フォントの表示のために、以下の外部サービスをCDN（Content Delivery Network）経由で読み込んでいます。
+        これらの読み込みの際、ご利用のブラウザから各サービスへ直接リクエストが送信されるため、一般的なWebサーバーのアクセスログと同様に、
+        IPアドレスなどの情報が各サービス側に記録される可能性があります。本アプリの運営者がこれらの情報を取得することはありません。
+      </p>
+      <ul>
+        <li>Leaflet（地図の描画）、および地図タイル画像（OpenStreetMap / CARTO）</li>
+        <li>Chart.js（グラフの描画）</li>
+        <li>Lucide Icons（アイコン表示）</li>
+        <li>Google Fonts（フォント表示）</li>
+        <li>Google Identity Services（Googleドライブ連携時のログイン処理）</li>
+      </ul>
+
+      <h2>お子様のプライバシーについて</h2>
+      <p>
+        本アプリは、お子様から意図的に個人情報を収集することを目的としていません。
+      </p>
+
+      <h2>このポリシーの変更について</h2>
+      <p>
+        本アプリの機能追加・変更に応じて、本ポリシーの内容を予告なく更新することがあります。
+        重要な変更がある場合は、本ページの「最終更新日」を更新します。
+      </p>
+
+      <h2>お問い合わせ</h2>
+      <p>
+        本ポリシーに関するご質問・ご意見は <a href="mailto:numacchi14@gmail.com">numacchi14@gmail.com</a> までご連絡ください。
+      </p>
+    </div>
+
+    <div class="doc-footer-nav">
+      <a href="index.html" class="takeout-link-btn"><i data-lucide="arrow-left"></i> アプリに戻る</a>
+      <a href="help.html" class="takeout-link-btn"><i data-lucide="help-circle"></i> 使い方ガイド</a>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/lucide/dist/umd/lucide.js"></script>
+  <script>lucide.createIcons();</script>
+</body>
+</html>
