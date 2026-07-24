@@ -60,7 +60,7 @@ Google Takeout でエクスポートした「保存済みの場所」「クチ�
 - ダークテーマ、ガラスモーフィズム調のカード、グラデーションアクセント
 - レスポンシブレイアウト対応（768px以下は一覧テーブルをカード表示に切り替え）
 
-### 2.5 Googleドライブ連携（2026-07-24実装、本番URLでの実機確認は未実施）
+### 2.5 Googleドライブ連携（2026-07-24実装・本番URLで連携／保存／別セッションからの読み込みまで実機確認済み）
 - ヘッダー常時表示（アップロード前でも操作可能）の「Googleドライブと連携」ボタンから、Google Identity Services（GIS）のimplicitトークンクライアントでOAuth認可。スコープは`drive.file`（このアプリが作成したファイルのみアクセス可）に限定
 - 連携が成功すると自動的にDrive上の保存データ（固定ファイル名`g-map-dashboard-backup.json`）を検索・読み込み。既存の`parseAppBackupJSON`＋`deduplicatePlaces`を経由してローカルの`places`にマージするため、ファイルインポートと同じ「既存の手動編集を上書きしない」安全性が保たれる
 - 「Driveに保存」ボタン（連携後のみ表示）で、JSONエクスポートと全く同じデータ構造（`buildBackupJSONPayload`。エクスポート用と共通化済み）をDriveへアップロード。初回は新規作成（POST）、2回目以降は同じファイルを更新（PATCH、`driveFileId`で追跡）
@@ -220,7 +220,7 @@ Google Takeout でエクスポートした「保存済みの場所」「クチ�
 | フェーズ | 内容 | 状況 |
 |---|---|---|
 | 1 | 認証・同期に依存しないロジック追加（マイカテゴリー/マイ都道府県の2軸分離、Geminiプロンプト機能、Takeoutボタン、クチコミ→Googleマップ遷移、リセット前バックアップ、クチコミ手動追加・編集、日付範囲フィルター、分類ロジックのテスト、モバイル一覧のカード化） | Takeoutボタン／クチコミ地図遷移／リセット前バックアップ（＋復元バグ修正）／分類テスト／モバイルカード化／マイカテゴリー・マイ都道府県2軸分離／クチコミ手動追加・編集（CSV一括編集込み）／日付範囲フィルター／Google連動カテゴリーのGeminiプロンプト方式取得（生ラベルそのまま使用に方式転換込み）／一覧のGoogle連動・マイカテゴリー2列表示／カテゴリー比率チャートの軸切り替え／都道府県自動判定の店名誤判定バグ修正は完了（2026-07-20〜21）。残: Google連動カテゴリーのGoogle Places API方式（bの代替案a、未着手・優先度低） |
-| 2 | Google Drive連携（OAuth、保存・読み込み） | コード実装済み（2026-07-24）。本番URL（GitHub Pages）でのエンドツーエンド動作確認が残課題 |
+| 2 | Google Drive連携（OAuth、保存・読み込み） | 完了（2026-07-24）。本番URL（GitHub Pages）で連携→保存→別セッションでの連携→読み込みまで実機確認済み |
 | 3 | オフラインキャッシュ設計（IndexedDB、端末ごとのON/OFF設定） | 未着手 |
 | 4 | PWA本実装（マニフェスト＋Service Worker、オフライン対応込み） | 未着手 |
 
@@ -230,9 +230,10 @@ Google Takeout でエクスポートした「保存済みの場所」「クチ�
   - `index.html`：`<script src="https://accounts.google.com/gsi/client">` を追加。ヘッダーに常時表示の`#drive-sync`ブロック（「Googleドライブと連携」ボタン／未連携時は非表示の「Driveに保存」ボタン／ステータステキスト）を新設。アップロード前でも押せる位置に配置し、連携直後にDrive上の既存データを読み込めるようにしている
   - `app.js`：GISのimplicitトークンクライアント（`getDriveTokenClient`/`connectGoogleDrive`）でdrive.fileスコープのアクセストークンを取得。`loadFromDrive`はファイル名`g-map-dashboard-backup.json`をDrive内で検索→`alt=media`で取得→既存の`parseAppBackupJSON`＋`deduplicatePlaces`経由でローカルの`places`にマージ（ファイルインポートと同じ安全なマージ経路を再利用し、ローカルの未保存編集を上書きしない）。`saveToDrive`はJSONバックアップと全く同じ構造（`buildBackupJSONPayload`——`exportJSON`用の生成処理を共通関数として切り出し）をmultipart uploadでDriveへ作成/更新（`driveFileId`があればPATCH、なければPOST）
   - アクセストークンはメモリ上のみ（`driveAccessToken`）、リロードで消える想定通りの挙動（フェーズ3のIndexedDB永続化までは毎回「連携」ボタンを押す運用）
-  - 動作確認：`node --check`・既存テスト62件はパス。ローカルdevサーバー＋Playwrightでページ読み込み・サンプルデータ表示・ヘッダーUIの見た目とコンソールエラー無しを確認済み。ただしOAuthクライアントIDが本番のPages URLオリジン限定のため、**実際のGoogleログイン〜保存/読み込みのエンドツーエンド動作はlocalhostでは検証できておらず、GitHub Pagesへのデプロイ後に本番URLで確認が必要**
+  - 動作確認：`node --check`・既存テスト62件はパス。ローカルdevサーバー＋Playwrightでページ読み込み・サンプルデータ表示・ヘッダーUIの見た目とコンソールエラー無しを確認済み
+  - **本番URLでの実機確認も完了**（2026-07-24）：コミット・push→GitHub Pagesへ自動デプロイ→「連携」→「保存」→別ブラウザ（シークレットウィンドウ）で「連携」→自動読み込み、まで一連の動作を確認済み
+    - 途中、保存時に403エラーが発生。原因はGoogle Cloud Consoleで**Drive APIそのものが未有効化**だったこと（OAuthクライアント登録・スコープ設定とは別に、「APIとサービス」→「有効なAPIとサービス」でGoogle Drive API自体を明示的に有効化する必要がある）。有効化後は問題なく保存・読み込みとも成功
 - 残タスク：
-  - 上記コード変更をコミット・push→GitHub Pagesへデプロイ→本番URLで「連携」→「保存」→別ブラウザ/シークレットウィンドウで「連携」→「読み込み」の一連の動作を実機確認
   - Google連動カテゴリーのPlaces API方式（選択肢a）は引き続き後回し（優先度低、合意済み）
   - フェーズ3（IndexedDBオフラインキャッシュ、端末ごとのON/OFF設定）は未着手のまま
 
