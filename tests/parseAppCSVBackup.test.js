@@ -33,6 +33,13 @@ test("マイ都道府県／マイカテゴリー（表示名）を再インポ�
   assert.equal(parsed[0].myCategory, "lodging");
 });
 
+test("月日がゼロ埋めされていない日付（Excel編集等で崩れた表記）もゼロ埋め済みの'YYYY/MM/DD'に揃えて復元する（回帰: 表記ゆれが最終更新日ソート/絞り込みを狂わせていた不具合）", () => {
+  const rows = parseCSVRows(HEADER + "\n手動追加スポット,東京都,,その他,,東京都渋谷区,,,2021/1/5,2021/1/5,,,,手動入力");
+  const parsed = parseAppCSVBackup(rows);
+  assert.equal(parsed[0].publishTime, "2021/01/05");
+  assert.equal(parsed[0].updateTime, "2021/01/05");
+});
+
 test("データソース列が空のレコードは既定でCSVインポート扱いにする", () => {
   const rows = parseCSVRows(HEADER + "\n通常データ,東京都,,その他,,,,,,,,,,");
   const parsed = parseAppCSVBackup(rows);

@@ -1490,8 +1490,11 @@ function parseAppCSVBackup(rows) {
       comment: comment,
       url: csvField(row, urlIdx),
       source: csvField(row, sourceIdx) || "CSVインポート",
-      publishTime: csvField(row, publishIdx),
-      updateTime: csvField(row, updateIdx)
+      // Excel等で編集された日付は "2021/1/5" のようにゼロ埋めが崩れて返ってくることがあるため、
+      // 他の取り込み経路（JSON復元・手動追加フォーム等）と同じくformatDateStringで
+      // "YYYY/MM/DD" に揃える（回帰: ゼロ埋め表記ゆれが最終更新日ソート/絞り込みを狂わせていた不具合）
+      publishTime: csvField(row, publishIdx) ? formatDateString(csvField(row, publishIdx)) : "",
+      updateTime: csvField(row, updateIdx) ? formatDateString(csvField(row, updateIdx)) : ""
     });
   }
   // Attached to the array (not a {places, warnings} wrapper) so every
@@ -1708,9 +1711,18 @@ function updateManualPlaceFields(place, input) {
   }
 }
 
-// "YYYY/MM/DD" と "YYYY-MM-DD" のどちらでも文字列の大小比較で新旧判定できるよう区切り文字を揃える
+// "YYYY/MM/DD" と "YYYY-MM-DD"、さらに月日がゼロ埋めされていない場合（"2021/1/5"）でも
+// 文字列の大小比較だけで正しく新旧判定できるよう、区切り文字を揃えた上で年月日をゼロ埋めする。
+// ゼロ埋めが揃っていないと、例えば"2021/1/5"と"2021/01/05"のような表記ゆれ同士で
+// 文字列比較が実際の日付の前後関係と逆転してしまう（回帰: 手入力分をCSVから読み込んだ際に
+// 混在した表記が最終更新日ソートを狂わせていた不具合）。
 function normalizeDateForCompare(dateStr) {
-  return (dateStr || "").replace(/\//g, "-");
+  const trimmed = (dateStr || "").trim();
+  if (!trimmed) return "";
+  const parts = trimmed.replace(/-/g, "/").split("/");
+  if (parts.length !== 3 || parts.some(p => !p || isNaN(p))) return trimmed;
+  const [y, m, d] = parts;
+  return `${y.padStart(4, "0")}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
 }
 
 // Deduplicate places list
@@ -2288,15 +2300,17 @@ function setupDropdownFilters() {
 }
 
 // Filter, Sort, and Render UI
-// Check whether a "YYYY/MM/DD" date string (the app's stored format, see
-// formatDateString) falls within an inclusive range given as "YYYY-MM-DD"
-// strings from <input type="date">. Both are zero-padded, so a straight
-// string compare after normalizing the separator is enough (no Date parsing,
-// no timezone drift).
+// Check whether a date string (normally "YYYY/MM/DD", the app's stored
+// format — see formatDateString — but not always zero-padded in practice,
+// e.g. 手動入力データのCSV一括編集を経由した値) falls within an inclusive
+// range given as "YYYY-MM-DD" strings from <input type="date"> (always
+// zero-padded). normalizeDateForCompare zero-pads dateStr too so the string
+// compare stays correct even when the two sides' padding wouldn't otherwise
+// match (no Date parsing, no timezone drift).
 function matchesDateRange(dateStr, fromStr, toStr) {
   if (!fromStr && !toStr) return true;
   if (!dateStr) return false;
-  const normalized = dateStr.replace(/\//g, "-");
+  const normalized = normalizeDateForCompare(dateStr);
   if (fromStr && normalized < fromStr) return false;
   if (toStr && normalized > toStr) return false;
   return true;
@@ -2344,6 +2358,11 @@ function filterAndRender() {
     if (currentSortColumn === 'prefecture') {
       valA = getEffectivePrefecture(a);
       valB = getEffectivePrefecture(b);
+    }
+    if (currentSortColumn === 'publishTime' || currentSortColumn === 'updateTime') {
+      // ゼロ埋め表記ゆれ（"2021/1/5" 等）があっても正しく新旧順になるよう正規化してから比較する
+      valA = normalizeDateForCompare(valA);
+      valB = normalizeDateForCompare(valB);
     }
 
     if (typeof valA === 'string') {
