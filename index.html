@@ -12,6 +12,9 @@
   
   <!-- Main Stylesheet -->
   <link rel="stylesheet" href="style.css">
+
+  <!-- Google Identity Services (Drive連携用のOAuth) -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
 
@@ -20,6 +23,15 @@
       <div class="header-title-container">
         <h1>Google Maps <span class="gradient-text">マイプレイス ダッシュボード</span></h1>
         <p>クチコミや保存済みの場所のデータを読み込み、県別・業種別にビジュアライズします</p>
+      </div>
+      <div class="drive-sync" id="drive-sync">
+        <button class="btn" id="btn-drive-connect" type="button">
+          <i data-lucide="cloud"></i> Googleドライブと連携
+        </button>
+        <button class="btn btn-primary" id="btn-drive-save" type="button" style="display: none;">
+          <i data-lucide="cloud-upload"></i> Driveに保存
+        </button>
+        <span class="drive-sync-status" id="drive-sync-status"></span>
       </div>
       <div class="action-buttons" id="header-actions" style="display: none;">
         <button class="btn" id="btn-manual-add" type="button">

@@ -214,6 +214,12 @@ function setupEventListeners() {
   const btnManualCsvExport = document.getElementById("btn-manual-csv-export");
   const btnManualCsvImport = document.getElementById("btn-manual-csv-import");
   const manualCsvInput = document.getElementById("manual-csv-input");
+  const btnDriveConnect = document.getElementById("btn-drive-connect");
+  const btnDriveSave = document.getElementById("btn-drive-save");
+
+  // Google Drive sync
+  btnDriveConnect.addEventListener("click", connectGoogleDrive);
+  btnDriveSave.addEventListener("click", saveToDrive);
 
   // Select file trigger
   selectFileBtn.addEventListener("click", () => fileInput.click());
@@ -2507,12 +2513,11 @@ function escapeCSVValue(val) {
   return formatted;
 }
 
-// Generate JSON export
-function exportJSON() {
-  if (places.length === 0) return;
-
-  // Map to a clean, well-structured format
-  const output = places.map(p => ({
+// Build the full backup payload shared by JSON download export and Google
+// Drive save (both need the exact same self-describing, no-loss structure
+// that parseAppBackupJSON knows how to restore).
+function buildBackupJSONPayload() {
+  return places.map(p => ({
     name: p.name,
     prefecture: p.prefecture,
     categoryKey: p.category,
@@ -2535,7 +2540,13 @@ function exportJSON() {
     googleMapsUrl: p.url,
     source: p.source
   }));
+}
 
+// Generate JSON export (download)
+function exportJSON() {
+  if (places.length === 0) return;
+
+  const output = buildBackupJSONPayload();
   const jsonContent = JSON.stringify(output, null, 2);
   const blob = new Blob([jsonContent], { type: "application/json;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
@@ -2547,6 +2558,167 @@ function exportJSON() {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+}
+
+// --- Google Drive Sync (Phase 2) ---
+// Uses Google Identity Services' implicit token client (drive.file scope only,
+// so this app can only see/edit files it created itself). No refresh token —
+// the access token lives for this browser session only; reconnecting is a
+// single click. Data is stored as one JSON file (the same shape exportJSON
+// produces), found each time by name rather than a remembered ID, since the
+// spec's simple conflict policy is "always fetch Drive's latest on open".
+const GOOGLE_DRIVE_CLIENT_ID = "536328866896-9h97ik12fo3usbu37chanu190emra4ep.apps.googleusercontent.com";
+const GOOGLE_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+const DRIVE_BACKUP_FILE_NAME = "g-map-dashboard-backup.json";
+
+let driveTokenClient = null;
+let driveAccessToken = null;
+let driveFileId = null; // set once the backup file is found or first created
+
+function getDriveTokenClient() {
+  if (driveTokenClient) return driveTokenClient;
+  if (typeof google === "undefined" || !google.accounts || !google.accounts.oauth2) {
+    return null;
+  }
+  driveTokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: GOOGLE_DRIVE_CLIENT_ID,
+    scope: GOOGLE_DRIVE_SCOPE,
+    callback: () => {} // overridden per-call in connectGoogleDrive()
+  });
+  return driveTokenClient;
+}
+
+function setDriveSyncStatus(message, isError) {
+  const el = document.getElementById("drive-sync-status");
+  if (!el) return;
+  el.textContent = message || "";
+  el.classList.toggle("is-error", !!isError);
+}
+
+// Toggles the header UI between "not connected" (連携ボタンのみ) and
+// "connected" (保存ボタンも表示) states.
+function updateDriveConnectionUI(connected) {
+  const connectBtn = document.getElementById("btn-drive-connect");
+  const saveBtn = document.getElementById("btn-drive-save");
+  if (!connectBtn || !saveBtn) return;
+  connectBtn.innerHTML = connected
+    ? '<i data-lucide="cloud"></i> 再連携'
+    : '<i data-lucide="cloud"></i> Googleドライブと連携';
+  saveBtn.style.display = connected ? "flex" : "none";
+  if (typeof lucide !== "undefined") lucide.createIcons();
+}
+
+function connectGoogleDrive() {
+  const client = getDriveTokenClient();
+  if (!client) {
+    setDriveSyncStatus("Google連携用のスクリプトを読み込めませんでした。再読み込みしてお試しください。", true);
+    return;
+  }
+  client.callback = async (resp) => {
+    if (resp.error) {
+      console.error("Drive OAuth error:", resp);
+      setDriveSyncStatus("Googleドライブとの連携が許可されませんでした。", true);
+      return;
+    }
+    driveAccessToken = resp.access_token;
+    updateDriveConnectionUI(true);
+    await loadFromDrive();
+  };
+  // Skip the consent prompt on token refresh within the same session.
+  client.requestAccessToken({ prompt: driveAccessToken ? "" : "consent" });
+}
+
+// Finds this app's backup file on Drive (by name, since drive.file scope
+// means only files this app created are ever visible) and merges it into
+// the current in-memory places via the same dedup/merge path a JSON file
+// import uses, so it never blindly clobbers unsaved local edits.
+async function loadFromDrive() {
+  try {
+    setDriveSyncStatus("Driveを確認中...");
+    const listUrl = "https://www.googleapis.com/drive/v3/files"
+      + `?q=${encodeURIComponent(`name='${DRIVE_BACKUP_FILE_NAME}' and trashed=false`)}`
+      + "&spaces=drive&fields=files(id,name,modifiedTime)";
+    const listRes = await fetch(listUrl, {
+      headers: { Authorization: `Bearer ${driveAccessToken}` }
+    });
+    if (!listRes.ok) throw new Error(`Drive list failed: ${listRes.status}`);
+    const listData = await listRes.json();
+    const existing = listData.files && listData.files[0];
+
+    if (!existing) {
+      driveFileId = null;
+      setDriveSyncStatus("Drive上に保存データはまだありません。「Driveに保存」で新規作成できます。");
+      return;
+    }
+    driveFileId = existing.id;
+
+    const fileRes = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${existing.id}?alt=media`,
+      { headers: { Authorization: `Bearer ${driveAccessToken}` } }
+    );
+    if (!fileRes.ok) throw new Error(`Drive file fetch failed: ${fileRes.status}`);
+    const json = await fileRes.json();
+
+    if (Array.isArray(json) && json.length > 0) {
+      const restored = parseAppBackupJSON(json);
+      places = deduplicatePlaces(places.concat(restored));
+      setupDropdownFilters();
+      filterAndRender();
+      showDashboard();
+    }
+
+    const modified = existing.modifiedTime ? new Date(existing.modifiedTime).toLocaleString("ja-JP") : "不明";
+    setDriveSyncStatus(`Driveの最新データを読み込みました（保存日時: ${modified}）`);
+  } catch (e) {
+    console.error("Drive load error:", e);
+    setDriveSyncStatus("Driveからの読み込みに失敗しました。時間を置いて再度お試しください。", true);
+  }
+}
+
+// Creates the backup file on first save, updates it (same file, matched by
+// driveFileId) on every save after that.
+async function saveToDrive() {
+  if (!driveAccessToken) {
+    connectGoogleDrive();
+    return;
+  }
+  if (places.length === 0) {
+    setDriveSyncStatus("保存するデータがありません。", true);
+    return;
+  }
+
+  setDriveSyncStatus("Driveに保存中...");
+  try {
+    const payload = buildBackupJSONPayload();
+    const boundary = "g_map_dashboard_boundary";
+    const metadata = driveFileId ? {} : { name: DRIVE_BACKUP_FILE_NAME, mimeType: "application/json" };
+    const body =
+      `--${boundary}\r\n` +
+      `Content-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
+      `--${boundary}\r\n` +
+      `Content-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(payload)}\r\n` +
+      `--${boundary}--`;
+
+    const url = driveFileId
+      ? `https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=multipart`
+      : "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart";
+
+    const res = await fetch(url, {
+      method: driveFileId ? "PATCH" : "POST",
+      headers: {
+        Authorization: `Bearer ${driveAccessToken}`,
+        "Content-Type": `multipart/related; boundary=${boundary}`
+      },
+      body
+    });
+    if (!res.ok) throw new Error(`Drive save failed: ${res.status}`);
+    const data = await res.json();
+    driveFileId = data.id;
+    setDriveSyncStatus(`Driveに保存しました（${new Date().toLocaleString("ja-JP")}）`);
+  } catch (e) {
+    console.error("Drive save error:", e);
+    setDriveSyncStatus("Driveへの保存に失敗しました。時間を置いて再度お試しください。", true);
+  }
 }
 
 // Load high quality sample data
