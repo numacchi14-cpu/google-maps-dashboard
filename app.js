@@ -246,6 +246,13 @@ function setupEventListeners() {
   selectFileBtn.addEventListener("click", () => fileInput.click());
   fileInput.addEventListener("change", (e) => handleFiles(e.target.files));
 
+  // Header shortcut to import more files (e.g. a newer Takeout export) once
+  // the dashboard is already showing — #upload-section (and its drop zone)
+  // is hidden at that point, so this was previously unreachable without
+  // resetting all data first.
+  const btnAddFiles = document.getElementById("btn-add-files");
+  btnAddFiles.addEventListener("click", () => fileInput.click());
+
   // Drag & drop
   dropZone.addEventListener("dragover", (e) => {
     e.preventDefault();

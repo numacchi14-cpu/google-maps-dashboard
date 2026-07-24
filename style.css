@@ -365,6 +365,17 @@ header {
   transform: translateY(0);
 }
 
+/* showDashboard() sets style.display="grid" on this element at runtime
+   (overriding the display:none above), making it a single-column implicit
+   grid — so its direct children are grid items whose default min-width:auto
+   pins them to their content's max-content size. That let the filter row
+   (search + 5 dropdowns + date range) push .table-card past the page edge,
+   silently clipped by body's overflow-x:hidden with no way to scroll to it
+   (reported: 操作 column unreachable, no horizontal scrollbar). */
+.dashboard-grid > * {
+  min-width: 0;
+}
+
 /* Bottom Grid for Map & Charts */
 .bottom-grid {
   display: grid;
@@ -471,6 +482,8 @@ header {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 /* カテゴリー比率チャートの集計軸トグル（Google連動 / マイカテゴリー） */
@@ -507,6 +520,12 @@ header {
 /* Filters Component */
 .filter-row {
   display: flex;
+  /* Without this, a flex item's default min-width:auto keeps it at its
+     unwrapped max-content size, so flex-wrap below never actually gets a
+     chance to kick in — the row (and everything containing it) just grows
+     past the page instead, silently clipped by body's overflow-x:hidden
+     with no way to scroll to it (reported: 操作 column unreachable). */
+  min-width: 0;
   gap: 1rem;
   flex-wrap: wrap;
 }
