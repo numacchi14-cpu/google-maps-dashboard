@@ -2642,6 +2642,10 @@ const DRIVE_BACKUP_FILE_NAME = "g-map-dashboard-backup.json";
 let driveTokenClient = null;
 let driveAccessToken = null;
 let driveFileId = null; // set once the backup file is found or first created
+// Drive's modifiedTime for driveFileId as of the last time THIS session loaded
+// or saved it. Used only as a cheap "has someone else saved since I last knew
+// the state?" check before overwriting — not a real merge (see saveToDrive).
+let driveKnownModifiedTime = null;
 
 function getDriveTokenClient() {
   if (driveTokenClient) return driveTokenClient;
@@ -2715,10 +2719,12 @@ async function loadFromDrive() {
 
     if (!existing) {
       driveFileId = null;
+      driveKnownModifiedTime = null;
       setDriveSyncStatus("Drive上に保存データはまだありません。「Driveに保存」で新規作成できます。");
       return;
     }
     driveFileId = existing.id;
+    driveKnownModifiedTime = existing.modifiedTime;
 
     const fileRes = await fetch(
       `https://www.googleapis.com/drive/v3/files/${existing.id}?alt=media`,
@@ -2743,8 +2749,23 @@ async function loadFromDrive() {
   }
 }
 
+// Fetches just the modifiedTime of a Drive file (no content download) — cheap
+// enough to call right before every save as a conflict check.
+async function fetchDriveModifiedTime(fileId) {
+  const res = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${fileId}?fields=modifiedTime`,
+    { headers: { Authorization: `Bearer ${driveAccessToken}` } }
+  );
+  if (!res.ok) throw new Error(`Drive metadata fetch failed: ${res.status}`);
+  const data = await res.json();
+  return data.modifiedTime;
+}
+
 // Creates the backup file on first save, updates it (same file, matched by
-// driveFileId) on every save after that.
+// driveFileId) on every save after that. Not a real multi-device merge (see
+// SPEC.md §5 — intentionally kept simple for solo/sequential use); the one
+// safety net is the conflict check below, which just warns instead of
+// silently clobbering another device's save.
 async function saveToDrive() {
   if (!driveAccessToken) {
     connectGoogleDrive();
@@ -2755,8 +2776,30 @@ async function saveToDrive() {
     return;
   }
 
-  setDriveSyncStatus("Driveに保存中...");
   try {
+    // If we already know a version of this file existed, check whether it
+    // changed since we last loaded/saved it — that means another device
+    // saved in between, and blindly uploading now would silently discard
+    // that device's changes.
+    if (driveFileId && driveKnownModifiedTime) {
+      setDriveSyncStatus("競合がないか確認中...");
+      const currentModifiedTime = await fetchDriveModifiedTime(driveFileId);
+      if (currentModifiedTime !== driveKnownModifiedTime) {
+        const modified = new Date(currentModifiedTime).toLocaleString("ja-JP");
+        const proceed = confirm(
+          `Driveのデータが他の端末で更新されています（更新日時: ${modified}）。\n` +
+          `このまま上書き保存すると、その変更が失われます。\n\n` +
+          `OK: このまま上書き保存する\n` +
+          `キャンセル: 保存を中止する（ページを再読み込みして「連携」からやり直すと、最新の内容を取り込めます）`
+        );
+        if (!proceed) {
+          setDriveSyncStatus("保存を中止しました。最新の内容を取り込むには、ページを再読み込みしてから連携し直してください。", true);
+          return;
+        }
+      }
+    }
+
+    setDriveSyncStatus("Driveに保存中...");
     const payload = buildBackupJSONPayload();
     const boundary = "g_map_dashboard_boundary";
     const metadata = driveFileId ? {} : { name: DRIVE_BACKUP_FILE_NAME, mimeType: "application/json" };
@@ -2768,8 +2811,8 @@ async function saveToDrive() {
       `--${boundary}--`;
 
     const url = driveFileId
-      ? `https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=multipart`
-      : "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart";
+      ? `https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=multipart&fields=id,modifiedTime`
+      : "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,modifiedTime";
 
     const res = await fetch(url, {
       method: driveFileId ? "PATCH" : "POST",
@@ -2782,6 +2825,7 @@ async function saveToDrive() {
     if (!res.ok) throw new Error(`Drive save failed: ${res.status}`);
     const data = await res.json();
     driveFileId = data.id;
+    driveKnownModifiedTime = data.modifiedTime;
     clearUnsavedChanges();
     setDriveSyncStatus(`Driveに保存しました（${new Date().toLocaleString("ja-JP")}）`);
   } catch (e) {
