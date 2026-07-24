@@ -295,6 +295,37 @@ header {
   box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4);
 }
 
+/* Help Guide Link (prominent, for first-time visitors) */
+.help-guide-container {
+  margin-top: 1.25rem;
+}
+
+.help-guide-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  color: var(--accent-primary);
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+  padding: 0.5rem 1.1rem;
+  border-radius: 999px;
+  transition: all 0.2s ease;
+}
+
+.help-guide-btn i {
+  width: 14px;
+  height: 14px;
+}
+
+.help-guide-btn:hover {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: var(--accent-primary);
+}
+
 /* Takeout Link */
 .takeout-link-container {
   margin-top: 1rem;
