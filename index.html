@@ -37,6 +37,9 @@
         <button class="btn" id="btn-manual-add" type="button">
           <i data-lucide="plus"></i> クチコミを手動で追加
         </button>
+        <button class="btn" id="btn-place-lookup" type="button">
+          <i data-lucide="map-pin-plus"></i> スポット情報をGeminiで検索
+        </button>
         <button class="btn" id="btn-category-settings" type="button">
           <i data-lucide="settings"></i> マイカテゴリー設定
         </button>
@@ -340,6 +343,50 @@
       <button class="btn btn-primary" id="btn-gemini-apply" type="button"><i data-lucide="check"></i> ③ 適用する</button>
 
       <div id="gemini-cat-result-list" class="gemini-cat-result-list"></div>
+    </div>
+  </div>
+
+  <!-- スポット情報のGemini検索 Modal（手動追加の補助） -->
+  <div class="modal-overlay" id="place-lookup-overlay">
+    <div class="glass-card modal-card">
+      <div class="card-header">
+        <h3 class="card-title"><i data-lucide="map-pin-plus"></i> スポット情報をGeminiで検索</h3>
+        <button class="modal-close-btn" id="place-lookup-close" type="button" aria-label="閉じる">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <p class="modal-desc">
+        Takeoutの上限（600件など）で漏れてしまった古いクチコミを手動で追加する際、正式名称・住所・緯度経度・カテゴリーをGeminiに検索してもらえます。
+        評価やコメントはGeminiには分からないため空欄のまま追加されます。追加後、一覧の編集アイコンから書き足してください。
+      </p>
+      <p class="gemini-cat-status" id="place-lookup-status"></p>
+
+      <div class="gemini-cat-step">
+        <div class="gemini-cat-step-header">
+          <span>① うろ覚えの情報を入力（1行1件。例: 福岡県 ラーメン二郎目黒店）</span>
+        </div>
+        <textarea id="place-lookup-input" class="search-input gemini-cat-textarea" rows="5" placeholder="福岡県 ラーメン二郎目黒店&#10;京都府 〇〇というカフェ"></textarea>
+        <button class="btn btn-primary" id="btn-place-lookup-generate" type="button"><i data-lucide="wand-2"></i> プロンプトを生成</button>
+      </div>
+
+      <div class="gemini-cat-step">
+        <div class="gemini-cat-step-header">
+          <span>② Geminiに渡すプロンプト</span>
+          <button class="btn" id="btn-place-lookup-copy-prompt" type="button"><i data-lucide="copy"></i> コピー</button>
+        </div>
+        <textarea id="place-lookup-prompt" class="search-input gemini-cat-textarea" readonly rows="8" title="Geminiに渡すプロンプト" placeholder="①でリストを入力してから生成してください"></textarea>
+      </div>
+
+      <div class="gemini-cat-step">
+        <div class="gemini-cat-step-header">
+          <span>③ Geminiの回答（JSON）を貼り付け</span>
+        </div>
+        <textarea id="place-lookup-response" class="search-input gemini-cat-textarea" rows="6" placeholder='[{"id": "q1", "candidates": [{"name": "...", "address": "...", "lat": 35.6, "lng": 139.7, "category": "..."}]}]'></textarea>
+      </div>
+
+      <button class="btn btn-primary" id="btn-place-lookup-apply" type="button"><i data-lucide="check"></i> ④ 候補を表示する</button>
+
+      <div id="place-lookup-result-list" class="place-lookup-result-list"></div>
     </div>
   </div>
 

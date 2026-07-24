@@ -1240,6 +1240,79 @@ tr:hover td {
   font-size: 0.85rem;
 }
 
+/* スポット情報のGemini検索（手動追加の補助）
+   .modal-card自体が既にスクロールするので、ここでは独自のスクロール領域は
+   持たせない（入れ子のスクロールコンテナはクリック判定が不安定になるため）。 */
+.place-lookup-result-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.place-lookup-result-list:empty {
+  display: none;
+}
+
+.place-lookup-query-block {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0.85rem 1rem;
+}
+
+.place-lookup-query-header {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.6rem;
+}
+
+.place-lookup-empty {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.place-lookup-candidate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--border-color);
+}
+
+.place-lookup-candidate:first-of-type {
+  border-top: none;
+}
+
+.place-lookup-candidate-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.place-lookup-candidate-info strong {
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+
+.place-lookup-candidate-warning {
+  color: #f59e0b;
+}
+
+.place-lookup-candidate .btn {
+  flex-shrink: 0;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.8rem;
+}
+
+.place-lookup-added-msg {
+  font-size: 0.85rem;
+  color: #10b981;
+}
+
 /* Responsive adjustments */
 @media (max-width: 1200px) {
   .dashboard-grid {

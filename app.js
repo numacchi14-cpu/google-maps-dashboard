@@ -231,6 +231,12 @@ function setupEventListeners() {
   const manualCsvInput = document.getElementById("manual-csv-input");
   const btnDriveConnect = document.getElementById("btn-drive-connect");
   const btnDriveSave = document.getElementById("btn-drive-save");
+  const btnPlaceLookup = document.getElementById("btn-place-lookup");
+  const placeLookupOverlay = document.getElementById("place-lookup-overlay");
+  const placeLookupClose = document.getElementById("place-lookup-close");
+  const btnPlaceLookupGenerate = document.getElementById("btn-place-lookup-generate");
+  const btnPlaceLookupCopyPrompt = document.getElementById("btn-place-lookup-copy-prompt");
+  const btnPlaceLookupApply = document.getElementById("btn-place-lookup-apply");
 
   // Google Drive sync
   btnDriveConnect.addEventListener("click", connectGoogleDrive);
@@ -378,6 +384,57 @@ function setupEventListeners() {
       });
       resultListEl.appendChild(ul);
     }
+  });
+
+  // スポット情報のGemini検索（手動追加の補助）
+  btnPlaceLookup.addEventListener("click", openPlaceLookupModal);
+  placeLookupClose.addEventListener("click", closePlaceLookupModal);
+  placeLookupOverlay.addEventListener("click", (e) => {
+    if (e.target === placeLookupOverlay) closePlaceLookupModal();
+  });
+  btnPlaceLookupGenerate.addEventListener("click", () => {
+    const inputEl = document.getElementById("place-lookup-input");
+    const promptEl = document.getElementById("place-lookup-prompt");
+    const statusEl = document.getElementById("place-lookup-status");
+    document.getElementById("place-lookup-result-list").innerHTML = "";
+
+    const rawLines = inputEl.value.split("\n").filter(l => l.trim().length > 0);
+    const queries = parsePlaceLookupQueries(inputEl.value);
+    if (queries.length === 0) {
+      statusEl.textContent = "①に検索したいスポットを1行1件で入力してください（例: 福岡県 ラーメン二郎目黒店）。";
+      promptEl.value = "";
+      geminiPlaceLookupQueries = [];
+      return;
+    }
+
+    geminiPlaceLookupQueries = queries;
+    promptEl.value = buildPlaceLookupPrompt(queries);
+    const truncatedNote = rawLines.length > GEMINI_PLACE_LOOKUP_MAX_QUERIES
+      ? `（最大${GEMINI_PLACE_LOOKUP_MAX_QUERIES}件までのため、先頭${GEMINI_PLACE_LOOKUP_MAX_QUERIES}件のみ対象にしました）`
+      : "";
+    statusEl.textContent = `${queries.length}件のプロンプトを生成しました。${truncatedNote}`;
+  });
+  btnPlaceLookupCopyPrompt.addEventListener("click", async () => {
+    const promptEl = document.getElementById("place-lookup-prompt");
+    if (!promptEl.value) return;
+    try {
+      await navigator.clipboard.writeText(promptEl.value);
+    } catch (e) {
+      promptEl.select();
+      document.execCommand("copy");
+    }
+  });
+  btnPlaceLookupApply.addEventListener("click", () => {
+    const responseEl = document.getElementById("place-lookup-response");
+    const statusEl = document.getElementById("place-lookup-status");
+    const results = parsePlaceLookupResponse(responseEl.value);
+    if (!results) {
+      alert("JSONの形式を読み取れませんでした。Geminiの回答をそのまま貼り付けてください。");
+      return;
+    }
+    renderPlaceLookupResults(results);
+    const totalCandidates = results.reduce((sum, r) => sum + r.candidates.length, 0);
+    statusEl.textContent = `${results.length}件中、候補が見つかったのは${results.filter(r => r.candidates.length > 0).length}件です（候補${totalCandidates}件）。追加したいものを選んでください。`;
   });
 
   // カテゴリー比率チャートの集計軸切り替え（Google連動 / マイカテゴリー）
@@ -1876,6 +1933,224 @@ function applyGeminiCategoryResults(results) {
   return applied;
 }
 
+// --- スポット情報のGemini検索（手動追加の補助、2026-07-24実装）---
+// Takeoutの600件上限等で漏れた古いクチコミを手動で追加する際、正式名称・住所・
+// 緯度経度・カテゴリーをうろ覚えの情報（都道府県+店名など）からGeminiに検索して
+// もらう。カテゴリー取得機能と同じ「プロンプト生成→貼り付け→適用」方式だが、
+// 対象は既存のplacesではなくまだ登録されていない候補である点が異なるため、
+// 候補が複数返ってきた場合はユーザーに選ばせるステップを挟む。
+const GEMINI_PLACE_LOOKUP_MAX_QUERIES = 30;
+// 直近に生成したプロンプトのクエリ一覧（結果表示時に元の入力文言を出すための参照用）
+let geminiPlaceLookupQueries = [];
+
+// 自由記述のテキストエリア（1行1件）を { id, query } の配列にパースする。
+// 空行は無視し、件数はGEMINI_PLACE_LOOKUP_MAX_QUERIES件までに制限する。
+function parsePlaceLookupQueries(text) {
+  if (!text) return [];
+  return text
+    .split("\n")
+    .map(line => line.trim())
+    .filter(line => line.length > 0)
+    .slice(0, GEMINI_PLACE_LOOKUP_MAX_QUERIES)
+    .map((query, index) => ({ id: `q${index + 1}`, query }));
+}
+
+function buildPlaceLookupPrompt(queries) {
+  return [
+    "以下は、うろ覚えで入力された日本国内外のスポット（店舗・施設）の手がかり（都道府県名や店名など）のリストです。",
+    "それぞれについて、Googleマップ上に実在すると考えられる候補を最大3件まで挙げてください。",
+    "各候補には、正式名称・住所・緯度・経度・業種（日本語の短い単語、例:「ラーメン店」「ホテル」「神社」）を含めてください。",
+    "該当する候補が見つからない場合は candidates を空配列にしてください。緯度経度が分からない候補は含めないでください。",
+    "出力は説明文を一切含めず、以下の形式のJSON配列のみを返してください（コードブロックも不要です）。",
+    '[{"id": "対象と同じid", "candidates": [{"name": "正式名称", "address": "住所", "lat": 35.123, "lng": 139.123, "category": "業種名"}]}]',
+    "",
+    "対象リスト:",
+    JSON.stringify(queries.map(q => ({ id: q.id, query: q.query })), null, 2)
+  ].join("\n");
+}
+
+// Geminiの回答テキストをパースする。```json コードフェンス付きでも許容する。
+// 配列でない/JSONとして壊れている場合はnullを返す。緯度経度が数値でない候補は除外する。
+function parsePlaceLookupResponse(text) {
+  if (!text) return null;
+  let cleaned = text.trim();
+  const fenceMatch = cleaned.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  if (fenceMatch) cleaned = fenceMatch[1].trim();
+
+  let data;
+  try {
+    data = JSON.parse(cleaned);
+  } catch (e) {
+    return null;
+  }
+  if (!Array.isArray(data)) return null;
+
+  return data
+    .filter(item => item && typeof item.id === "string" && Array.isArray(item.candidates))
+    .map(item => ({
+      id: item.id,
+      candidates: item.candidates
+        .filter(c => c && typeof c.name === "string" && c.name.trim()
+          && typeof c.lat === "number" && typeof c.lng === "number"
+          && c.lat >= -90 && c.lat <= 90 && c.lng >= -180 && c.lng <= 180)
+        .map(c => ({
+          name: c.name.trim(),
+          address: typeof c.address === "string" ? c.address.trim() : "",
+          lat: c.lat,
+          lng: c.lng,
+          category: typeof c.category === "string" ? c.category.trim() : ""
+        }))
+    }));
+}
+
+// 住所からの都道府県判定と、座標からの最寄り都道府県判定が食い違う場合に警告文を返す
+// （Geminiが緯度経度をハルシネーションした際の簡易セーフティネット。null=問題なし）。
+function checkPlaceLookupCoordinateMismatch(candidate) {
+  const addressPref = extractPrefecture(candidate.address, candidate.name, null, null);
+  if (addressPref === "その他・海外") return null;
+
+  let closestPref = "その他・海外";
+  let minDistance = Infinity;
+  PREFECTURE_COORDINATES.forEach(pref => {
+    const dLat = pref.lat - candidate.lat;
+    const dLng = pref.lng - candidate.lng;
+    const dist = dLat * dLat + dLng * dLng;
+    if (dist < minDistance) {
+      minDistance = dist;
+      closestPref = pref.name;
+    }
+  });
+
+  if (closestPref !== addressPref) {
+    return `座標が住所（${addressPref}）と大きく異なります（座標からは${closestPref}付近と判定）`;
+  }
+  return null;
+}
+
+// 選ばれた候補から手動入力レコードのフィールドを組み立てる。buildManualPlaceFields
+// （フォーム入力用、classifyCategory/extractPrefectureで名前からカテゴリー・
+// 都道府県を再計算する）とは異なり、こちらは候補の住所・座標・業種をそのまま
+// 信頼して使う（業種は既存のGemini取得カテゴリーの仕組みに乗せ、googleCategoryRaw
+// として保存する）。評価・コメント・投稿日はGeminiには分からないため空欄のまま、
+// 追加後は既存の編集フローで書き足す運用を想定。
+function buildManualPlaceFieldsFromLookupCandidate(candidate) {
+  return {
+    name: candidate.name,
+    address: candidate.address,
+    lat: candidate.lat,
+    lng: candidate.lng,
+    prefecture: extractPrefecture(candidate.address, candidate.name, candidate.lat, candidate.lng),
+    category: candidate.category ? getOrCreateGeminiCategory(candidate.category) : classifyCategory(candidate.name, ""),
+    googleCategoryRaw: candidate.category || null,
+    rating: null,
+    comment: "",
+    url: "",
+    publishTime: "",
+    updateTime: ""
+  };
+}
+
+function addManualPlaceFromLookupCandidate(candidate) {
+  const newPlace = {
+    id: `manual-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+    ...buildManualPlaceFieldsFromLookupCandidate(candidate),
+    myPrefecture: null,
+    myCategory: null,
+    source: "手動入力"
+  };
+
+  places = places.concat([newPlace]);
+  places = deduplicatePlaces(places);
+
+  setupDropdownFilters();
+  filterAndRender();
+}
+
+// パース済みの検索結果を、クエリごとの候補選択カードとして描画する。
+function renderPlaceLookupResults(results) {
+  const container = document.getElementById("place-lookup-result-list");
+  container.innerHTML = "";
+
+  results.forEach(result => {
+    const original = geminiPlaceLookupQueries.find(q => q.id === result.id);
+    const block = document.createElement("div");
+    block.className = "place-lookup-query-block";
+
+    const header = document.createElement("div");
+    header.className = "place-lookup-query-header";
+    header.textContent = original ? original.query : result.id;
+    block.appendChild(header);
+
+    if (result.candidates.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "place-lookup-empty";
+      empty.textContent = "候補が見つかりませんでした。「クチコミを手動で追加」から直接入力してください。";
+      block.appendChild(empty);
+      container.appendChild(block);
+      return;
+    }
+
+    result.candidates.forEach(candidate => {
+      const card = document.createElement("div");
+      card.className = "place-lookup-candidate";
+
+      const mismatch = checkPlaceLookupCoordinateMismatch(candidate);
+
+      const info = document.createElement("div");
+      info.className = "place-lookup-candidate-info";
+      const nameEl = document.createElement("strong");
+      nameEl.textContent = candidate.name;
+      info.appendChild(nameEl);
+      const addrEl = document.createElement("span");
+      addrEl.textContent = candidate.address || "住所不明";
+      info.appendChild(addrEl);
+      const catEl = document.createElement("span");
+      catEl.textContent = candidate.category || "業種不明";
+      info.appendChild(catEl);
+      if (mismatch) {
+        const warnEl = document.createElement("span");
+        warnEl.className = "place-lookup-candidate-warning";
+        warnEl.textContent = `⚠️ ${mismatch}`;
+        info.appendChild(warnEl);
+      }
+      card.appendChild(info);
+
+      const addBtn = document.createElement("button");
+      addBtn.className = "btn btn-primary";
+      addBtn.type = "button";
+      addBtn.textContent = "これを追加する";
+      addBtn.addEventListener("click", () => {
+        addManualPlaceFromLookupCandidate(candidate);
+        markUnsavedChanges();
+        block.innerHTML = "";
+        const doneMsg = document.createElement("p");
+        doneMsg.className = "place-lookup-added-msg";
+        doneMsg.textContent = `✓ 「${candidate.name}」を追加しました`;
+        block.appendChild(doneMsg);
+      });
+      card.appendChild(addBtn);
+
+      block.appendChild(card);
+    });
+
+    container.appendChild(block);
+  });
+}
+
+function openPlaceLookupModal() {
+  document.getElementById("place-lookup-input").value = "";
+  document.getElementById("place-lookup-prompt").value = "";
+  document.getElementById("place-lookup-response").value = "";
+  document.getElementById("place-lookup-result-list").innerHTML = "";
+  document.getElementById("place-lookup-status").textContent = "";
+  geminiPlaceLookupQueries = [];
+  document.getElementById("place-lookup-overlay").classList.add("active");
+}
+
+function closePlaceLookupModal() {
+  document.getElementById("place-lookup-overlay").classList.remove("active");
+}
+
 // Populate dropdown filters based on loaded data
 function setupDropdownFilters() {
   const filterPref = document.getElementById("filter-prefecture");
@@ -3061,5 +3336,5 @@ function loadSampleData() {
 
 // Expose pure logic functions for Node-based tests (no-op in the browser).
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { classifyCategory, extractPrefecture, parseAppBackupJSON, getAllCategories, customCategories, geminiCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, summarizeUnresolvedMyCategoryNames, getOrCreateGeminiCategory, buildGeminiCategoryPrompt, parseGeminiCategoryResponse, applyGeminiCategoryResults, deduplicatePlaces, places };
+  module.exports = { classifyCategory, extractPrefecture, parseAppBackupJSON, getAllCategories, customCategories, geminiCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, summarizeUnresolvedMyCategoryNames, getOrCreateGeminiCategory, buildGeminiCategoryPrompt, parseGeminiCategoryResponse, applyGeminiCategoryResults, parsePlaceLookupQueries, buildPlaceLookupPrompt, parsePlaceLookupResponse, checkPlaceLookupCoordinateMismatch, buildManualPlaceFieldsFromLookupCandidate, deduplicatePlaces, places };
 }
