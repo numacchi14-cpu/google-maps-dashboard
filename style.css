@@ -202,10 +202,17 @@ h1, h2, h3, h4 {
 
 header {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
+  gap: 1rem;
   border-bottom: 1px solid var(--border-color);
   padding-bottom: 1.5rem;
+}
+
+.header-title-container {
+  flex: 1 1 auto;
+  min-width: 280px;
 }
 
 .header-title-container h1 {
@@ -593,6 +600,8 @@ header {
 /* Actions Menu */
 .action-buttons {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 0.75rem;
 }
 
@@ -771,7 +780,10 @@ table {
 }
 
 thead {
-  background: rgba(17, 24, 39, 0.9);
+  /* Fully opaque — this sticks over scrolling rows, so any transparency
+     lets the row underneath show through it (reported: table data visible
+     bleeding through the header while scrolling). */
+  background: rgb(17, 24, 39);
   position: sticky;
   top: 0;
   z-index: 2;
