@@ -2392,7 +2392,6 @@ function renderTable(filteredList) {
         <span title="${p.name}">${p.name}</span>
       </div>
     `;
-    tr.appendChild(nameTd);
 
     // Prefecture Edit Column (edits マイ都道府県; falls back to Google連動判定 when unset)
     const prefTd = document.createElement("td");
@@ -2424,7 +2423,6 @@ function renderTable(filteredList) {
       filterAndRender();
     });
     prefTd.appendChild(prefSelect);
-    tr.appendChild(prefTd);
 
     // Google連動カテゴリー列（読み取り専用。Geminiが返した生ラベルをそのまま表示する軸）
     const catTd = document.createElement("td");
@@ -2447,7 +2445,6 @@ function renderTable(filteredList) {
       : "店名・住所からの自動判定（キーワードヒューリスティック）";
     catCellInner.appendChild(googleCatLabel);
     catTd.appendChild(catCellInner);
-    tr.appendChild(catTd);
 
     // マイカテゴリー列（編集可能。未設定ならGoogle連動カテゴリーの見た目・値をそのまま引き継ぐ。
     // 上書きしている行だけ✨バッジを表示して区別する — Google連動カテゴリー列の
@@ -2523,7 +2520,6 @@ function renderTable(filteredList) {
     });
     myCatCellInner.appendChild(myCatSelect);
     myCatTd.appendChild(myCatCellInner);
-    tr.appendChild(myCatTd);
 
     // Address Column
     const addrTd = document.createElement("td");
@@ -2538,7 +2534,6 @@ function renderTable(filteredList) {
     } else {
       addrTd.innerHTML = `<div class="cell-scrollable" title="${p.address}">${addrParts.line1}</div>`;
     }
-    tr.appendChild(addrTd);
 
     // Rating Column
     const rateTd = document.createElement("td");
@@ -2552,21 +2547,18 @@ function renderTable(filteredList) {
       rateTd.style.color = "var(--text-muted)";
       rateTd.textContent = "-";
     }
-    tr.appendChild(rateTd);
 
     // Review/Comment Column
     const commentTd = document.createElement("td");
     commentTd.className = "review-text-cell";
     commentTd.setAttribute("data-label", "レビュー・メモ");
     commentTd.innerHTML = p.comment ? `<div class="cell-scrollable" title="${p.comment}">${p.comment}</div>` : `<div class="cell-scrollable">-</div>`;
-    tr.appendChild(commentTd);
 
     // Update Date Column (derived from publishTime / date property)
     const updTd = document.createElement("td");
     updTd.className = "col-upd-date";
     updTd.setAttribute("data-label", "最終更新日");
     updTd.textContent = p.publishTime || "-";
-    tr.appendChild(updTd);
 
     // Actions Column (Delete, Center Map, Edit for manual entries)
     const actTd = document.createElement("td");
@@ -2613,7 +2605,20 @@ function renderTable(filteredList) {
       }
     });
 
+    // Column order: name/date/rating/actions are kept together up front so
+    // they're visible without horizontal scrolling ("いつ行った・評価・操作"
+    // at a glance); prefecture/category/address/review — already narrowed
+    // via the filter dropdowns above the table — sit further right, behind
+    // the scroll (2026-07-24 reorder, per user feedback).
+    tr.appendChild(nameTd);
+    tr.appendChild(updTd);
+    tr.appendChild(rateTd);
     tr.appendChild(actTd);
+    tr.appendChild(prefTd);
+    tr.appendChild(catTd);
+    tr.appendChild(myCatTd);
+    tr.appendChild(addrTd);
+    tr.appendChild(commentTd);
     tbody.appendChild(tr);
   });
   
