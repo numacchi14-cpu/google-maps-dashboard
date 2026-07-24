@@ -75,6 +75,29 @@ test("手動入力レコードは、更新日が新しい取り込みがあっ�
   assert.equal(result[0].source, "手動入力");
 });
 
+test("手動入力レコードでも、初投稿日・最終更新日が未設定なら取り込みデータで埋め合わせる（評価・レビュー同様の空欄埋め）", () => {
+  const existing = basePlace({
+    source: "手動入力",
+    rating: null,
+    comment: "",
+    publishTime: "",
+    updateTime: ""
+  });
+  const incoming = basePlace({
+    rating: 4,
+    comment: "後から書き足したクチコミ",
+    publishTime: "2026/03/01",
+    updateTime: "2026/03/01"
+  });
+
+  const result = deduplicatePlaces([existing, incoming]);
+
+  assert.equal(result[0].rating, 4);
+  assert.equal(result[0].comment, "後から書き足したクチコミ");
+  assert.equal(result[0].publishTime, "2026/03/01");
+  assert.equal(result[0].updateTime, "2026/03/01");
+});
+
 test("マイ都道府県・マイカテゴリーは、更新日に関わらずユーザー設定済みなら保護される", () => {
   const existing = basePlace({ myPrefecture: "大阪府", myCategory: "よく行く店" });
   const incoming = basePlace({

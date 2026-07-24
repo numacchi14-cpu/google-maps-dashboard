@@ -1761,6 +1761,8 @@ function deduplicatePlaces(list) {
           if (!existing.comment && item.comment) existing.comment = item.comment;
           if (!existing.rating && item.rating) existing.rating = item.rating;
           if (!existing.address && item.address) existing.address = item.address;
+          if (!existing.publishTime && item.publishTime) existing.publishTime = item.publishTime;
+          if (!existing.updateTime && item.updateTime) existing.updateTime = item.updateTime;
           // Google連動カテゴリーの生データも同様に、既存側が未取得のときだけ埋め合わせる
           if (!existing.googleCategoryRaw && item.googleCategoryRaw) {
             existing.googleCategoryRaw = item.googleCategoryRaw;
