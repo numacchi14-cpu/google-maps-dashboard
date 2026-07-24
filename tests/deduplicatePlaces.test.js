@@ -126,6 +126,35 @@ test("マイ都道府県・マイカテゴリーが未設定の場合は、取�
   assert.equal(result[0].myCategory, "ラーメン店");
 });
 
+test("URL・緯度経度のどちらも無い（名前＋住所のみ一致の）重複でも、埋め合わせマージが効く（回帰: circolo park 鴻巣店のようなGemini追加スポットで最終更新日が一切反映されなかった不具合）", () => {
+  const existing = basePlace({
+    url: "",
+    lat: null,
+    lng: null,
+    rating: null,
+    comment: "",
+    publishTime: "",
+    updateTime: "",
+    source: "手動入力"
+  });
+  const incoming = basePlace({
+    url: "",
+    lat: null,
+    lng: null,
+    rating: 4,
+    comment: "後から書き足したクチコミ",
+    publishTime: "2026/03/01",
+    updateTime: "2026/03/01"
+  });
+
+  const result = deduplicatePlaces([existing, incoming]);
+
+  assert.equal(result.length, 1);
+  assert.equal(result[0].rating, 4);
+  assert.equal(result[0].comment, "後から書き足したクチコミ");
+  assert.equal(result[0].updateTime, "2026/03/01");
+});
+
 test("URLが一致しない場合は別レコードとして扱う（重複排除しない）", () => {
   const a = basePlace({ url: "https://maps.google.com/?cid=1" });
   const b = basePlace({ id: "id2", url: "https://maps.google.com/?cid=2" });

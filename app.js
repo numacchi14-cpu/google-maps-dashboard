@@ -1715,11 +1715,18 @@ function normalizeDateForCompare(dateStr) {
 
 // Deduplicate places list
 function deduplicatePlaces(list) {
-  const unique = [];
-  const keys = new Set();
-  
+  // Keyed by the same match key used to detect duplicates (URL, else
+  // name+coordinates, else name+address as a last resort for records with
+  // neither — e.g. hand-added spots Gemini couldn't geocode). Using one Map
+  // for both registration and lookup guarantees a record recognized as a
+  // duplicate always has a mergeable `existing` counterpart; a previous
+  // version computed the key with a name+address fallback but only ever
+  // looked up `existing` by URL/coordinates, so name+address-only duplicates
+  // were silently dropped — recognized as dupes but never merged, losing
+  // whatever the incoming record had (rating/comment/date/etc.) entirely.
+  const uniqueByKey = new Map();
+
   list.forEach(item => {
-    // Generate a unique match key: either URL, or name + lat + lng
     let key = "";
     if (item.url) {
       key = item.url;
@@ -1728,57 +1735,49 @@ function deduplicatePlaces(list) {
     } else {
       key = `${(item.name || "").toLowerCase()}-${(item.address || "").toLowerCase()}`;
     }
-    
-    if (!keys.has(key)) {
-      keys.add(key);
-      unique.push(item);
+
+    const existing = uniqueByKey.get(key);
+    if (!existing) {
+      uniqueByKey.set(key, item);
     } else {
-      // If duplicate exists, merge comments or ratings if the current has more data
-      const existing = unique.find(x => {
-        if (item.url && x.url === item.url) return true;
-        if (item.lat && item.lng && x.lat && x.lng && Math.abs(x.lat - item.lat) < 0.0001 && Math.abs(x.lng - item.lng) < 0.0001) return true;
-        return false;
-      });
-      if (existing) {
-        // Googleマップ側でレビュー本文・評価が編集されると、Takeoutの再エクスポートで
-        // 最終更新日（updateTime）が新しくなって返ってくる。手動入力レコード以外は、
-        // 取り込みデータの方が新しければGoogle由来フィールドを追従上書きする。
-        // 手動入力（source: "手動入力"）はユーザーが直接編集したデータなので対象外。
-        const incomingIsNewer = existing.source !== "手動入力" && item.updateTime &&
-          (!existing.updateTime || normalizeDateForCompare(item.updateTime) > normalizeDateForCompare(existing.updateTime));
+      // Googleマップ側でレビュー本文・評価が編集されると、Takeoutの再エクスポートで
+      // 最終更新日（updateTime）が新しくなって返ってくる。手動入力レコード以外は、
+      // 取り込みデータの方が新しければGoogle由来フィールドを追従上書きする。
+      // 手動入力（source: "手動入力"）はユーザーが直接編集したデータなので対象外。
+      const incomingIsNewer = existing.source !== "手動入力" && item.updateTime &&
+        (!existing.updateTime || normalizeDateForCompare(item.updateTime) > normalizeDateForCompare(existing.updateTime));
 
-        if (incomingIsNewer) {
-          if (item.comment) existing.comment = item.comment;
-          if (item.rating) existing.rating = item.rating;
-          if (item.address) existing.address = item.address;
-          if (item.prefecture) existing.prefecture = item.prefecture;
-          existing.updateTime = item.updateTime;
-          if (item.googleCategoryRaw) {
-            existing.googleCategoryRaw = item.googleCategoryRaw;
-            existing.category = getOrCreateGeminiCategory(item.googleCategoryRaw);
-          }
-        } else {
-          if (!existing.comment && item.comment) existing.comment = item.comment;
-          if (!existing.rating && item.rating) existing.rating = item.rating;
-          if (!existing.address && item.address) existing.address = item.address;
-          if (!existing.publishTime && item.publishTime) existing.publishTime = item.publishTime;
-          if (!existing.updateTime && item.updateTime) existing.updateTime = item.updateTime;
-          // Google連動カテゴリーの生データも同様に、既存側が未取得のときだけ埋め合わせる
-          if (!existing.googleCategoryRaw && item.googleCategoryRaw) {
-            existing.googleCategoryRaw = item.googleCategoryRaw;
-            existing.category = getOrCreateGeminiCategory(item.googleCategoryRaw);
-          }
+      if (incomingIsNewer) {
+        if (item.comment) existing.comment = item.comment;
+        if (item.rating) existing.rating = item.rating;
+        if (item.address) existing.address = item.address;
+        if (item.prefecture) existing.prefecture = item.prefecture;
+        existing.updateTime = item.updateTime;
+        if (item.googleCategoryRaw) {
+          existing.googleCategoryRaw = item.googleCategoryRaw;
+          existing.category = getOrCreateGeminiCategory(item.googleCategoryRaw);
         }
-
-        // マイ都道府県/マイカテゴリーは常にユーザー編集を優先し、未設定の場合のみ埋め合わせる
-        // （Google側の更新日に関わらず、フレッシュな取り込みで上書きされることはない）。
-        if (!existing.myPrefecture && item.myPrefecture) existing.myPrefecture = item.myPrefecture;
-        if (!existing.myCategory && item.myCategory) existing.myCategory = item.myCategory;
+      } else {
+        if (!existing.comment && item.comment) existing.comment = item.comment;
+        if (!existing.rating && item.rating) existing.rating = item.rating;
+        if (!existing.address && item.address) existing.address = item.address;
+        if (!existing.publishTime && item.publishTime) existing.publishTime = item.publishTime;
+        if (!existing.updateTime && item.updateTime) existing.updateTime = item.updateTime;
+        // Google連動カテゴリーの生データも同様に、既存側が未取得のときだけ埋め合わせる
+        if (!existing.googleCategoryRaw && item.googleCategoryRaw) {
+          existing.googleCategoryRaw = item.googleCategoryRaw;
+          existing.category = getOrCreateGeminiCategory(item.googleCategoryRaw);
+        }
       }
+
+      // マイ都道府県/マイカテゴリーは常にユーザー編集を優先し、未設定の場合のみ埋め合わせる
+      // （Google側の更新日に関わらず、フレッシュな取り込みで上書きされることはない）。
+      if (!existing.myPrefecture && item.myPrefecture) existing.myPrefecture = item.myPrefecture;
+      if (!existing.myCategory && item.myCategory) existing.myCategory = item.myCategory;
     }
   });
-  
-  return unique;
+
+  return Array.from(uniqueByKey.values());
 }
 
 // Extract Prefecture Name from Address / Title with Coordinates Fallback
