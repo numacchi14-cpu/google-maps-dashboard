@@ -290,7 +290,7 @@
         </button>
       </div>
       <p class="modal-desc">
-        Googleの自動判定（12種類）に加えて、自分だけのカテゴリーを作成できます。作成したカテゴリーは各スポットの「カテゴリー」欄でマイカテゴリーとして選択でき、フィルター・グラフにも反映されます。
+        Google連動カテゴリー（自動判定／Geminiで取得した実データ）とは別に、自分だけのカテゴリーを作成できます。作成したカテゴリーは各スポットの「マイカテゴリー」欄で選択でき、フィルター・グラフにも反映されます。
       </p>
       <form id="add-category-form" class="add-category-form">
         <input type="text" id="new-category-name" class="search-input" placeholder="新しいカテゴリー名（例: よく行く店）" maxlength="20" title="新しいカテゴリー名" required>
@@ -311,7 +311,7 @@
         </button>
       </div>
       <p class="modal-desc">
-        スポット名・住所のみをGeminiに渡して業種を判定してもらい、結果をこのアプリの12カテゴリーに反映します（評価・レビュー本文は送信されません）。
+        スポット名・住所のみをGeminiに渡して業種を判定してもらい、返ってきた業種ラベルをそのままGoogle連動カテゴリーとして反映します（12種類への丸め込みはしません。評価・レビュー本文は送信されません）。
         「①プロンプトをコピー」→「②Geminiに貼り付けて実行」→「③返ってきたJSONをここに貼り付けて適用」の3ステップです。件数が多い場合は複数回に分けて繰り返してください。
       </p>
       <p class="gemini-cat-status" id="gemini-cat-status"></p>
