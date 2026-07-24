@@ -18,6 +18,13 @@ let customCategories = {};
 let geminiCategories = {};
 // Set to a place's id while the manual-add modal is open in "edit" mode; null when adding new.
 let editingManualPlaceId = null;
+// True whenever places/customCategories have changed since the last successful
+// save (Drive save, JSON export, or CSV export) — state lives in memory only
+// (no localStorage/IndexedDB, per SPEC.md §4), so closing the tab with this
+// true silently loses the changes. Drives the beforeunload warning below.
+let hasUnsavedChanges = false;
+function markUnsavedChanges() { hasUnsavedChanges = true; }
+function clearUnsavedChanges() { hasUnsavedChanges = false; }
 
 // Constants
 const PREFECTURES = [
@@ -165,6 +172,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Setup Event Listeners
   setupEventListeners();
+
+  // Warn before an accidental tab close/reload throws away unsaved edits —
+  // there's no auto-save or local persistence, so this is the only safety net.
+  window.addEventListener("beforeunload", (e) => {
+    if (!hasUnsavedChanges) return;
+    e.preventDefault();
+    e.returnValue = "";
+  });
 });
 
 // Initialize Leaflet Map
@@ -306,6 +321,7 @@ function setupEventListeners() {
     customCategories[key] = { name: name, color: colorInput.value, custom: true };
     nameInput.value = "";
     colorInput.value = "#3b82f6";
+    markUnsavedChanges();
 
     renderCustomCategoryList();
     setupDropdownFilters();
@@ -338,6 +354,7 @@ function setupEventListeners() {
       return;
     }
     const applied = applyGeminiCategoryResults(results);
+    if (applied.length > 0) markUnsavedChanges();
     responseEl.value = "";
     setupDropdownFilters();
     filterAndRender();
@@ -402,6 +419,7 @@ function setupEventListeners() {
       const place = places.find(p => p.id === editingManualPlaceId);
       if (place) {
         updateManualPlaceFields(place, input);
+        markUnsavedChanges();
         setupDropdownFilters();
         filterAndRender();
       }
@@ -409,6 +427,7 @@ function setupEventListeners() {
     } else {
       const wasEmpty = places.length === 0;
       addManualPlace(input);
+      markUnsavedChanges();
       closeManualAdd();
       if (wasEmpty) showDashboard();
     }
@@ -626,6 +645,7 @@ async function importManualCSV(file) {
     return;
   }
 
+  if (result.addedCount > 0 || result.updatedCount > 0) markUnsavedChanges();
   setupDropdownFilters();
   filterAndRender();
   if (wasEmpty && places.length > 0) showDashboard();
@@ -676,6 +696,7 @@ function deleteCustomCategory(key) {
 
   places.forEach(p => { if (p.myCategory === key) p.myCategory = null; });
   delete customCategories[key];
+  markUnsavedChanges();
 
   renderCustomCategoryList();
   setupDropdownFilters();
@@ -694,6 +715,7 @@ function resetApp() {
     places = [];
     customCategories = {};
     geminiCategories = {};
+    clearUnsavedChanges();
     document.getElementById("upload-section").style.display = "block";
     document.getElementById("dashboard-section").classList.remove("visible");
     setTimeout(() => {
@@ -788,6 +810,7 @@ async function handleFiles(files) {
     }
 
     if (hasNewPlaces || manualImportHappened) {
+      markUnsavedChanges();
       setupDropdownFilters();
       filterAndRender();
       showDashboard();
@@ -2114,6 +2137,7 @@ function renderTable(filteredList) {
     });
     prefSelect.addEventListener("change", (e) => {
       p.myPrefecture = e.target.value || null;
+      markUnsavedChanges();
       setupDropdownFilters();
       filterAndRender();
     });
@@ -2211,6 +2235,7 @@ function renderTable(filteredList) {
 
     myCatSelect.addEventListener("change", (e) => {
       p.myCategory = e.target.value || null;
+      markUnsavedChanges();
       setupDropdownFilters();
       filterAndRender();
     });
@@ -2300,6 +2325,7 @@ function renderTable(filteredList) {
     actTd.querySelector(".btn-delete").addEventListener("click", () => {
       if (confirm(`「${p.name}」をリストから削除しますか？`)) {
         places = places.filter(x => x.id !== p.id);
+        markUnsavedChanges();
         setupDropdownFilters();
         filterAndRender();
       }
@@ -2597,6 +2623,9 @@ function exportJSON() {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+  // JSON is the one lossless format (unlike exportCSV — see SPEC.md §4), so a
+  // download here counts as a real backup and clears the unsaved-changes flag.
+  clearUnsavedChanges();
 }
 
 // --- Google Drive Sync (Phase 2) ---
@@ -2753,6 +2782,7 @@ async function saveToDrive() {
     if (!res.ok) throw new Error(`Drive save failed: ${res.status}`);
     const data = await res.json();
     driveFileId = data.id;
+    clearUnsavedChanges();
     setDriveSyncStatus(`Driveに保存しました（${new Date().toLocaleString("ja-JP")}）`);
   } catch (e) {
     console.error("Drive save error:", e);
