@@ -1166,6 +1166,50 @@ tr:hover td {
   background: rgba(239, 68, 68, 0.1);
 }
 
+.custom-category-edit {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0.25rem;
+  display: flex;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.custom-category-edit:hover {
+  color: var(--accent-primary);
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.custom-category-item-editing {
+  gap: 0.5rem;
+}
+
+.custom-category-edit-color {
+  width: 36px;
+  height: 36px;
+  padding: 2px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.custom-category-edit-name {
+  flex: 1;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.85rem;
+}
+
+.custom-category-save,
+.custom-category-cancel {
+  padding: 0.4rem 0.7rem;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+
 /* Manual Add (クチコミを手動で追加) Modal */
 .manual-add-form {
   display: flex;

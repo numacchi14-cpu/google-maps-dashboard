@@ -738,13 +738,67 @@ function renderCustomCategoryList() {
       <span class="custom-category-swatch" style="background:${info.color};"></span>
       <span class="custom-category-name">${info.name}</span>
       <span class="custom-category-count">${count}件</span>
+      <button class="custom-category-edit" type="button" title="編集"><i data-lucide="pencil" style="width:14px;height:14px;"></i></button>
       <button class="custom-category-delete" type="button" title="削除"><i data-lucide="trash-2" style="width:14px;height:14px;"></i></button>
     `;
+    row.querySelector(".custom-category-edit").addEventListener("click", () => startEditCustomCategory(row, key));
     row.querySelector(".custom-category-delete").addEventListener("click", () => deleteCustomCategory(key));
     container.appendChild(row);
   });
 
   lucide.createIcons();
+}
+
+// Switch a category row into inline edit mode. Renaming/recoloring only touches
+// the customCategories registry entry — places store the category by `key`
+// (see myCategory), so every place already using this category picks up the
+// new name/color automatically via getAllCategories() lookups.
+function startEditCustomCategory(row, key) {
+  const info = customCategories[key];
+  if (!info) return;
+
+  row.classList.add("custom-category-item-editing");
+  row.innerHTML = `
+    <input type="color" class="custom-category-edit-color" value="${info.color}" title="カテゴリーの色">
+    <input type="text" class="search-input custom-category-edit-name" value="${info.name}" maxlength="20" title="カテゴリー名">
+    <button class="btn btn-primary custom-category-save" type="button">保存</button>
+    <button class="btn custom-category-cancel" type="button">キャンセル</button>
+  `;
+
+  const nameInput = row.querySelector(".custom-category-edit-name");
+  const colorInput = row.querySelector(".custom-category-edit-color");
+
+  const save = () => {
+    const name = nameInput.value.trim();
+    if (!name) {
+      nameInput.focus();
+      return;
+    }
+    const isDuplicate = Object.entries(customCategories).some(([k, c]) => k !== key && c.name === name);
+    if (isDuplicate) {
+      alert("同じ名前のマイカテゴリーが既にあります。");
+      return;
+    }
+
+    customCategories[key].name = name;
+    customCategories[key].color = colorInput.value;
+    markUnsavedChanges();
+
+    renderCustomCategoryList();
+    setupDropdownFilters();
+    filterAndRender();
+  };
+
+  row.querySelector(".custom-category-save").addEventListener("click", save);
+  row.querySelector(".custom-category-cancel").addEventListener("click", () => renderCustomCategoryList());
+  nameInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      save();
+    }
+  });
+  nameInput.focus();
+  nameInput.select();
 }
 
 // Delete a custom category, reverting any place using it back to auto-detection
