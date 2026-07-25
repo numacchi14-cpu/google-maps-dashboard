@@ -1378,6 +1378,13 @@ tr:hover td {
   padding: 0.75rem 1rem;
 }
 
+/* Used where the textarea is only copied into/pasted from (a copy button
+   handles reading the prompt, and the response is just pasted in) — shrink it
+   so the 適用結果 list below gets more of the modal's vertical space. */
+.gemini-cat-textarea-compact {
+  min-height: 60px;
+}
+
 .gemini-cat-result-list {
   max-height: 220px;
   overflow-y: auto;
@@ -1385,6 +1392,10 @@ tr:hover td {
   border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 0.75rem 1rem;
+}
+
+.gemini-cat-result-list-large {
+  max-height: 420px;
 }
 
 .gemini-cat-result-list:empty {

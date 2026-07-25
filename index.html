@@ -387,19 +387,19 @@
           <span>① Geminiに渡すプロンプト</span>
           <button class="btn" id="btn-gemini-loc-copy-prompt" type="button"><i data-lucide="copy"></i> コピー</button>
         </div>
-        <textarea id="gemini-loc-prompt" class="search-input gemini-cat-textarea" readonly rows="8" title="Geminiに渡すプロンプト" placeholder="対象スポットがありません"></textarea>
+        <textarea id="gemini-loc-prompt" class="search-input gemini-cat-textarea gemini-cat-textarea-compact" readonly rows="4" title="Geminiに渡すプロンプト" placeholder="対象スポットがありません"></textarea>
       </div>
 
       <div class="gemini-cat-step">
         <div class="gemini-cat-step-header">
           <span>② Geminiの回答（JSON）を貼り付け</span>
         </div>
-        <textarea id="gemini-loc-response" class="search-input gemini-cat-textarea" rows="6" placeholder='[{"id": "...", "url": "https://maps.google.com/?q=...", "lat": 35.6586, "lng": 139.7454}, ...]'></textarea>
+        <textarea id="gemini-loc-response" class="search-input gemini-cat-textarea gemini-cat-textarea-compact" rows="4" placeholder='[{"id": "...", "url": "https://maps.google.com/?q=...", "lat": 35.6586, "lng": 139.7454}, ...]'></textarea>
       </div>
 
       <button class="btn btn-primary" id="btn-gemini-loc-apply" type="button"><i data-lucide="check"></i> ③ 適用する</button>
 
-      <div id="gemini-loc-result-list" class="gemini-cat-result-list"></div>
+      <div id="gemini-loc-result-list" class="gemini-cat-result-list gemini-cat-result-list-large"></div>
     </div>
   </div>
 
