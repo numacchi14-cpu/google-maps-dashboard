@@ -2292,9 +2292,11 @@ function checkPlaceLookupCoordinateMismatch(candidate) {
 // （フォーム入力用、classifyCategory/extractPrefectureで名前からカテゴリー・
 // 都道府県を再計算する）とは異なり、こちらは候補の住所・座標・業種をそのまま
 // 信頼して使う（業種は既存のGemini取得カテゴリーの仕組みに乗せ、googleCategoryRaw
-// として保存する）。評価・コメント・投稿日はGeminiには分からないため空欄のまま、
-// 追加後は既存の編集フローで書き足す運用を想定。
-function buildManualPlaceFieldsFromLookupCandidate(candidate) {
+// として保存する）。コメント・投稿日はGeminiには分からないため空欄のまま、追加後は
+// 既存の編集フローで書き足す運用を想定。評価だけは候補カード上で選んでから追加できる
+// （2026-07-25追加：Geminiは実際に行ったかどうかや感想までは分からないが、評価は
+// 追加のタイミングでまとめて選べた方が後から一覧を開き直す手間がないというユーザー要望）。
+function buildManualPlaceFieldsFromLookupCandidate(candidate, rating) {
   return {
     name: candidate.name,
     address: candidate.address,
@@ -2303,7 +2305,7 @@ function buildManualPlaceFieldsFromLookupCandidate(candidate) {
     prefecture: extractPrefecture(candidate.address, candidate.name, candidate.lat, candidate.lng),
     category: candidate.category ? getOrCreateGeminiCategory(candidate.category) : classifyCategory(candidate.name, ""),
     googleCategoryRaw: candidate.category || null,
-    rating: null,
+    rating: rating || null,
     comment: "",
     url: "",
     publishTime: "",
@@ -2311,10 +2313,10 @@ function buildManualPlaceFieldsFromLookupCandidate(candidate) {
   };
 }
 
-function addManualPlaceFromLookupCandidate(candidate) {
+function addManualPlaceFromLookupCandidate(candidate, rating) {
   const newPlace = {
     id: `manual-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-    ...buildManualPlaceFieldsFromLookupCandidate(candidate),
+    ...buildManualPlaceFieldsFromLookupCandidate(candidate, rating),
     myPrefecture: null,
     myCategory: null,
     source: "手動入力"
@@ -2376,12 +2378,26 @@ function renderPlaceLookupResults(results) {
       }
       card.appendChild(info);
 
+      const ratingSelect = document.createElement("select");
+      ratingSelect.className = "select-input place-lookup-candidate-rating";
+      ratingSelect.title = "評価";
+      ratingSelect.innerHTML = `
+        <option value="">評価（任意）</option>
+        <option value="5">★5</option>
+        <option value="4">★4</option>
+        <option value="3">★3</option>
+        <option value="2">★2</option>
+        <option value="1">★1</option>
+      `;
+      card.appendChild(ratingSelect);
+
       const addBtn = document.createElement("button");
       addBtn.className = "btn btn-primary";
       addBtn.type = "button";
       addBtn.textContent = "これを追加する";
       addBtn.addEventListener("click", () => {
-        addManualPlaceFromLookupCandidate(candidate);
+        const rating = ratingSelect.value ? parseInt(ratingSelect.value) : null;
+        addManualPlaceFromLookupCandidate(candidate, rating);
         markUnsavedChanges();
         block.innerHTML = "";
         const doneMsg = document.createElement("p");

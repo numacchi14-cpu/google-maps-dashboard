@@ -122,3 +122,15 @@ test("buildManualPlaceFieldsFromLookupCandidate: 業種が空文字の候補はc
   assert.equal(fields.googleCategoryRaw, null);
   assert.notEqual(fields.category, null);
 });
+
+test("buildManualPlaceFieldsFromLookupCandidate: 第2引数で評価を指定すればそのまま採用される", () => {
+  const candidate = { name: "テスト神社", address: "東京都渋谷区1-1", lat: 35.6, lng: 139.7, category: "" };
+  const fields = buildManualPlaceFieldsFromLookupCandidate(candidate, 4);
+  assert.equal(fields.rating, 4);
+});
+
+test("buildManualPlaceFieldsFromLookupCandidate: 評価未指定はnullのまま（従来通り）", () => {
+  const candidate = { name: "テスト神社", address: "東京都渋谷区1-1", lat: 35.6, lng: 139.7, category: "" };
+  const fields = buildManualPlaceFieldsFromLookupCandidate(candidate, null);
+  assert.equal(fields.rating, null);
+});

@@ -1414,6 +1414,13 @@ tr:hover td {
   font-size: 0.8rem;
 }
 
+.place-lookup-candidate-rating {
+  flex-shrink: 0;
+  width: auto;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.8rem;
+}
+
 .place-lookup-added-msg {
   font-size: 0.85rem;
   color: #10b981;
