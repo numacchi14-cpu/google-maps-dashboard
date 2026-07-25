@@ -32,6 +32,15 @@
           <i data-lucide="cloud-upload"></i> Driveに保存
         </button>
         <span class="drive-sync-status" id="drive-sync-status"></span>
+
+        <label class="local-cache-toggle-wrap" for="local-cache-toggle" title="このデバイスにデータをキャッシュし、オフラインでも直近のデータを見られるようにします。共有PCではOFFにしてください。">
+          <span class="local-cache-toggle-switch">
+            <input type="checkbox" id="local-cache-toggle" checked>
+            <span class="local-cache-toggle-slider"></span>
+          </span>
+          <span class="local-cache-toggle-label">このデバイスにデータを保存</span>
+        </label>
+        <span class="drive-sync-status" id="local-cache-status"></span>
       </div>
       <div class="action-buttons" id="header-actions" style="display: none;">
         <button class="btn" id="btn-add-files" type="button">

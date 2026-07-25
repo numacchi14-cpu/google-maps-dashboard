@@ -19,12 +19,22 @@ let geminiCategories = {};
 // Set to a place's id while the manual-add modal is open in "edit" mode; null when adding new.
 let editingManualPlaceId = null;
 // True whenever places/customCategories have changed since the last successful
-// save (Drive save, JSON export, or CSV export) — state lives in memory only
-// (no localStorage/IndexedDB, per SPEC.md §4), so closing the tab with this
-// true silently loses the changes. Drives the beforeunload warning below.
+// save (Drive save or JSON export — the lossless formats). The local IndexedDB
+// cache (below) is a convenience layer, not a "real" backup (it's device-local
+// and can be cleared by the user/browser at any time), so it does NOT clear
+// this flag — closing the tab with this true still silently risks losing the
+// changes from the user's other devices' perspective. Drives the beforeunload
+// warning below.
 let hasUnsavedChanges = false;
-function markUnsavedChanges() { hasUnsavedChanges = true; }
+function markUnsavedChanges() { hasUnsavedChanges = true; scheduleLocalCacheWrite(); }
 function clearUnsavedChanges() { hasUnsavedChanges = false; }
+
+// Per-device ON/OFF preference for the local offline cache (below). Kept in
+// localStorage (not IndexedDB) since it's app preference metadata, not place
+// data, and must be readable synchronously at startup before deciding whether
+// to touch IndexedDB at all.
+const LOCAL_CACHE_PREF_KEY = "localCacheEnabled";
+let localCacheWriteTimer = null; // debounce handle for scheduleLocalCacheWrite()
 
 // Constants
 const PREFECTURES = [
@@ -173,8 +183,17 @@ document.addEventListener("DOMContentLoaded", () => {
   // Setup Event Listeners
   setupEventListeners();
 
+  // Reflect the saved local-cache preference into the header toggle, then
+  // (if enabled) try to restore the last session from IndexedDB — async,
+  // fire-and-forget; it no-ops quietly if there's nothing cached or the
+  // toggle is off.
+  updateLocalCacheToggleUI();
+  restoreFromLocalCache();
+
   // Warn before an accidental tab close/reload throws away unsaved edits —
-  // there's no auto-save or local persistence, so this is the only safety net.
+  // Drive save / JSON export are the only real backups (the local cache above
+  // is device-local convenience, not a substitute — see hasUnsavedChanges
+  // comment), so this is still the safety net for those.
   window.addEventListener("beforeunload", (e) => {
     if (!hasUnsavedChanges) return;
     e.preventDefault();
@@ -236,6 +255,7 @@ function setupEventListeners() {
   const manualCsvInput = document.getElementById("manual-csv-input");
   const btnDriveConnect = document.getElementById("btn-drive-connect");
   const btnDriveSave = document.getElementById("btn-drive-save");
+  const localCacheToggle = document.getElementById("local-cache-toggle");
   const btnPlaceLookup = document.getElementById("btn-place-lookup");
   const placeLookupOverlay = document.getElementById("place-lookup-overlay");
   const placeLookupClose = document.getElementById("place-lookup-close");
@@ -246,6 +266,11 @@ function setupEventListeners() {
   // Google Drive sync
   btnDriveConnect.addEventListener("click", connectGoogleDrive);
   btnDriveSave.addEventListener("click", saveToDrive);
+
+  // Local offline cache toggle (Phase 3)
+  if (localCacheToggle) {
+    localCacheToggle.addEventListener("change", (e) => handleLocalCacheToggleChange(e.target.checked));
+  }
 
   // Select file trigger
   selectFileBtn.addEventListener("click", () => fileInput.click());
@@ -928,6 +953,10 @@ function resetApp() {
     customCategories = {};
     geminiCategories = {};
     clearUnsavedChanges();
+    // Regardless of the current toggle state — otherwise a reset could look
+    // like it worked and then silently "un-reset" itself from the cache on
+    // the next page load.
+    clearLocalCache();
     document.getElementById("upload-section").style.display = "block";
     document.getElementById("dashboard-section").classList.remove("visible");
     setTimeout(() => {
@@ -3192,6 +3221,195 @@ function exportJSON() {
   clearUnsavedChanges();
 }
 
+// --- Local Offline Cache (Phase 3, IndexedDB) ---
+// Stores exactly what buildBackupJSONPayload()/exportJSON()/saveToDrive() already
+// produce — one record in one object store, mirroring Drive's fixed-single-filename
+// model. Restoring goes through the same parseAppBackupJSON() every other ingestion
+// path uses, so this inherits the same round-trip shape/limitations as JSON/Drive
+// (e.g. an unused custom category still won't survive a round trip) rather than
+// introducing a second schema to maintain.
+const LOCAL_CACHE_DB_NAME = "g-map-dashboard-cache";
+const LOCAL_CACHE_DB_VERSION = 1;
+const LOCAL_CACHE_STORE_NAME = "backup";
+const LOCAL_CACHE_RECORD_KEY = "current";
+const LOCAL_CACHE_WRITE_DEBOUNCE_MS = 800;
+
+// Preference defaults to ON (agreed default: most users benefit from not losing
+// data on reload; shared-PC users are expected to switch it off themselves).
+function isLocalCacheEnabled() {
+  const pref = localStorage.getItem(LOCAL_CACHE_PREF_KEY);
+  return pref === null ? true : pref === "true";
+}
+
+function setLocalCacheEnabled(enabled) {
+  localStorage.setItem(LOCAL_CACHE_PREF_KEY, enabled ? "true" : "false");
+}
+
+// Promise-wrapped IndexedDB open. Resolves null (never rejects) when IndexedDB
+// is unavailable/blocked (e.g. private browsing) so every caller can treat
+// "no DB" as a silent no-op — the cache is a convenience layer and must never
+// crash or interrupt normal in-memory operation.
+function openLocalCacheDB() {
+  return new Promise((resolve) => {
+    if (typeof indexedDB === "undefined") {
+      resolve(null);
+      return;
+    }
+    let request;
+    try {
+      request = indexedDB.open(LOCAL_CACHE_DB_NAME, LOCAL_CACHE_DB_VERSION);
+    } catch (e) {
+      console.warn("Local cache unavailable (indexedDB.open threw):", e);
+      resolve(null);
+      return;
+    }
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(LOCAL_CACHE_STORE_NAME)) {
+        db.createObjectStore(LOCAL_CACHE_STORE_NAME);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => {
+      console.warn("Local cache unavailable (indexedDB.open failed):", request.error);
+      resolve(null);
+    };
+    request.onblocked = () => resolve(null);
+  });
+}
+
+// Writes the current buildBackupJSONPayload() output as the single cached
+// record. Fails silently (quota exceeded, DB unavailable, private browsing).
+async function writeLocalCache() {
+  const db = await openLocalCacheDB();
+  if (!db) return;
+  try {
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(LOCAL_CACHE_STORE_NAME, "readwrite");
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+      tx.objectStore(LOCAL_CACHE_STORE_NAME).put(
+        { updatedAt: new Date().toISOString(), payload: buildBackupJSONPayload() },
+        LOCAL_CACHE_RECORD_KEY
+      );
+    });
+  } catch (e) {
+    console.warn("Local cache write failed:", e);
+  } finally {
+    db.close();
+  }
+}
+
+// Reads the single cached record, or null if none/unavailable/corrupt.
+async function readLocalCache() {
+  const db = await openLocalCacheDB();
+  if (!db) return null;
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(LOCAL_CACHE_STORE_NAME, "readonly");
+      const req = tx.objectStore(LOCAL_CACHE_STORE_NAME).get(LOCAL_CACHE_RECORD_KEY);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (e) {
+    console.warn("Local cache read failed:", e);
+    return null;
+  } finally {
+    db.close();
+  }
+}
+
+// Deletes the cached record outright — used when the toggle is switched OFF
+// (so a shared PC doesn't keep plaintext data around just because writes
+// stopped) and by resetApp() (so a reset can't silently "un-reset" itself on
+// the next page load).
+async function clearLocalCache() {
+  const db = await openLocalCacheDB();
+  if (!db) return;
+  try {
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(LOCAL_CACHE_STORE_NAME, "readwrite");
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+      tx.objectStore(LOCAL_CACHE_STORE_NAME).delete(LOCAL_CACHE_RECORD_KEY);
+    });
+  } catch (e) {
+    console.warn("Local cache clear failed:", e);
+  } finally {
+    db.close();
+  }
+}
+
+// Pure gate logic for scheduleLocalCacheWrite(), kept free of any global
+// access so it's directly unit-testable under Node without stubbing
+// localStorage/indexedDB (see tests/localCache.test.js).
+function shouldScheduleLocalCacheWrite(cacheEnabled, indexedDBAvailable) {
+  return !!cacheEnabled && !!indexedDBAvailable;
+}
+
+// Debounced write scheduler — the single choke point hooked into
+// markUnsavedChanges() (covers all real-edit call sites at once) and
+// loadFromDrive() (which changes `places` without going through
+// markUnsavedChanges()). ~800ms so rapid successive edits collapse into one
+// write.
+function scheduleLocalCacheWrite() {
+  if (!shouldScheduleLocalCacheWrite(isLocalCacheEnabled(), typeof indexedDB !== "undefined")) return;
+  if (localCacheWriteTimer) clearTimeout(localCacheWriteTimer);
+  localCacheWriteTimer = setTimeout(() => {
+    localCacheWriteTimer = null;
+    writeLocalCache();
+  }, LOCAL_CACHE_WRITE_DEBOUNCE_MS);
+}
+
+// Cold-boot restore, called once from DOMContentLoaded when the toggle is ON.
+// A straight assignment is correct here (no deduplicatePlaces merge) since
+// nothing else is loaded yet. Does NOT call markUnsavedChanges() — restoring
+// a previous session isn't a new edit. Fails silently and leaves the app on
+// the normal empty upload screen if anything about the cached record is
+// missing/corrupt.
+async function restoreFromLocalCache() {
+  if (!isLocalCacheEnabled()) return;
+  try {
+    const record = await readLocalCache();
+    if (!record || !Array.isArray(record.payload) || record.payload.length === 0) return;
+    const restored = parseAppBackupJSON(record.payload);
+    if (!Array.isArray(restored) || restored.length === 0) return;
+    places = restored;
+    setupDropdownFilters();
+    filterAndRender();
+    showDashboard();
+  } catch (e) {
+    console.warn("Local cache restore failed, falling back to empty state:", e);
+  }
+}
+
+// Reflects the saved preference into the header toggle's checked state and
+// status text. Called once at startup and after every toggle change.
+function updateLocalCacheToggleUI() {
+  const checkbox = document.getElementById("local-cache-toggle");
+  const status = document.getElementById("local-cache-status");
+  if (!checkbox) return;
+  const enabled = isLocalCacheEnabled();
+  checkbox.checked = enabled;
+  if (status) {
+    status.textContent = enabled
+      ? "このデバイスにデータを保存します（オフライン閲覧可）"
+      : "このデバイスには保存しません（共有PC向け）";
+  }
+}
+
+// Handles the toggle's change event. Turning it OFF clears any already-cached
+// data immediately (see clearLocalCache() comment above). Turning it ON does
+// NOT retroactively write the current in-memory places — the next real edit
+// (or Drive load) populates it naturally via the existing write hooks.
+function handleLocalCacheToggleChange(enabled) {
+  setLocalCacheEnabled(enabled);
+  updateLocalCacheToggleUI();
+  if (!enabled) {
+    clearLocalCache();
+  }
+}
+
 // --- Google Drive Sync (Phase 2) ---
 // Uses Google Identity Services' implicit token client (drive.file scope only,
 // so this app can only see/edit files it created itself). No refresh token —
@@ -3303,6 +3521,10 @@ async function loadFromDrive() {
       setupDropdownFilters();
       filterAndRender();
       showDashboard();
+      // This path changes `places` without going through markUnsavedChanges()
+      // (loading isn't a local edit), but the offline cache should still pick
+      // up Drive's possibly-newer data.
+      scheduleLocalCacheWrite();
     }
 
     const modified = existing.modifiedTime ? new Date(existing.modifiedTime).toLocaleString("ja-JP") : "不明";
@@ -3625,5 +3847,5 @@ function loadSampleData() {
 
 // Expose pure logic functions for Node-based tests (no-op in the browser).
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { classifyCategory, extractPrefecture, parseAppBackupJSON, getAllCategories, customCategories, geminiCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, summarizeUnresolvedMyCategoryNames, getOrCreateGeminiCategory, buildGeminiCategoryPrompt, parseGeminiCategoryResponse, applyGeminiCategoryResults, getGeminiLocationIncompletePlaces, buildGeminiLocationPrompt, parseGeminiLocationResponse, applyGeminiLocationResults, parsePlaceLookupQueries, buildPlaceLookupPrompt, parsePlaceLookupResponse, checkPlaceLookupCoordinateMismatch, buildManualPlaceFieldsFromLookupCandidate, deduplicatePlaces, places };
+  module.exports = { classifyCategory, extractPrefecture, parseAppBackupJSON, getAllCategories, customCategories, geminiCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, summarizeUnresolvedMyCategoryNames, getOrCreateGeminiCategory, buildGeminiCategoryPrompt, parseGeminiCategoryResponse, applyGeminiCategoryResults, getGeminiLocationIncompletePlaces, buildGeminiLocationPrompt, parseGeminiLocationResponse, applyGeminiLocationResults, parsePlaceLookupQueries, buildPlaceLookupPrompt, parsePlaceLookupResponse, checkPlaceLookupCoordinateMismatch, buildManualPlaceFieldsFromLookupCandidate, deduplicatePlaces, places, shouldScheduleLocalCacheWrite };
 }
