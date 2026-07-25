@@ -220,6 +220,11 @@ function setupEventListeners() {
   const geminiCategoryClose = document.getElementById("gemini-category-close");
   const btnGeminiCopyPrompt = document.getElementById("btn-gemini-copy-prompt");
   const btnGeminiApply = document.getElementById("btn-gemini-apply");
+  const btnGeminiLocation = document.getElementById("btn-gemini-location");
+  const geminiLocationOverlay = document.getElementById("gemini-location-overlay");
+  const geminiLocationClose = document.getElementById("gemini-location-close");
+  const btnGeminiLocCopyPrompt = document.getElementById("btn-gemini-loc-copy-prompt");
+  const btnGeminiLocApply = document.getElementById("btn-gemini-loc-apply");
   const catAxisToggle = document.getElementById("cat-axis-toggle");
   const btnManualAdd = document.getElementById("btn-manual-add");
   const btnManualAddEmpty = document.getElementById("btn-manual-add-empty");
@@ -393,6 +398,63 @@ function setupEventListeners() {
     }
   });
 
+  // Googleマップリンク・緯度経度の取得（Geminiプロンプト方式）
+  btnGeminiLocation.addEventListener("click", openGeminiLocationModal);
+  geminiLocationClose.addEventListener("click", closeGeminiLocationModal);
+  geminiLocationOverlay.addEventListener("click", (e) => {
+    if (e.target === geminiLocationOverlay) closeGeminiLocationModal();
+  });
+  btnGeminiLocCopyPrompt.addEventListener("click", async () => {
+    const promptEl = document.getElementById("gemini-loc-prompt");
+    if (!promptEl.value) return;
+    try {
+      await navigator.clipboard.writeText(promptEl.value);
+    } catch (e) {
+      promptEl.select();
+      document.execCommand("copy");
+    }
+  });
+  btnGeminiLocApply.addEventListener("click", () => {
+    const responseEl = document.getElementById("gemini-loc-response");
+    const statusEl = document.getElementById("gemini-loc-status");
+    const resultListEl = document.getElementById("gemini-loc-result-list");
+    const results = parseGeminiLocationResponse(responseEl.value);
+    if (!results) {
+      alert("JSONの形式を読み取れませんでした。Geminiの回答をそのまま貼り付けてください。");
+      return;
+    }
+    const applied = applyGeminiLocationResults(results);
+    if (applied.some(item => item.urlApplied || item.coordsApplied)) markUnsavedChanges();
+    responseEl.value = "";
+    setupDropdownFilters();
+    filterAndRender();
+    refreshGeminiLocationModal();
+    const remaining = getGeminiLocationIncompletePlaces().length;
+    statusEl.textContent = `${applied.length}件を反映しました。` + (remaining > 0 ? ` 続けて次のバッチ（残り${remaining}件）を取得できます。` : " すべて取得済みです。");
+
+    // Geminiが実際に何と答えたか、どこまで反映できたかをその場で確認できるようにする
+    resultListEl.innerHTML = "";
+    if (applied.length > 0) {
+      const heading = document.createElement("p");
+      heading.className = "gemini-cat-result-heading";
+      heading.textContent = "適用結果";
+      resultListEl.appendChild(heading);
+
+      const ul = document.createElement("ul");
+      applied.forEach(item => {
+        const li = document.createElement("li");
+        const parts = [];
+        if (item.urlApplied) parts.push("リンクを反映");
+        if (item.coordsApplied) parts.push("緯度経度を反映");
+        if (item.coordsSkippedReason) parts.push(`⚠️ 緯度経度は反映せず（${item.coordsSkippedReason}）`);
+        if (parts.length === 0) parts.push("反映できる項目がありませんでした");
+        li.textContent = `${item.name}: ${parts.join(" / ")}`;
+        ul.appendChild(li);
+      });
+      resultListEl.appendChild(ul);
+    }
+  });
+
   // スポット情報のGemini検索（手動追加の補助）
   btnPlaceLookup.addEventListener("click", openPlaceLookupModal);
   placeLookupClose.addEventListener("click", closePlaceLookupModal);
@@ -548,6 +610,38 @@ function refreshGeminiCategoryModal() {
   geminiCategoryBatch = remaining.slice(0, GEMINI_CATEGORY_BATCH_SIZE);
   promptEl.value = buildGeminiCategoryPrompt(geminiCategoryBatch);
   statusEl.textContent = `未取得 ${remaining.length}件中、今回のバッチは${geminiCategoryBatch.length}件です。`;
+}
+
+// Open/close the Gemini連携 リンク・緯度経度取得モーダル
+function openGeminiLocationModal() {
+  document.getElementById("gemini-loc-response").value = "";
+  document.getElementById("gemini-loc-result-list").innerHTML = "";
+  refreshGeminiLocationModal();
+  document.getElementById("gemini-location-overlay").classList.add("active");
+}
+
+function closeGeminiLocationModal() {
+  document.getElementById("gemini-location-overlay").classList.remove("active");
+}
+
+// 未取得スポットの先頭バッチ分のプロンプトを生成してモーダルに反映する
+function refreshGeminiLocationModal() {
+  const remaining = getGeminiLocationIncompletePlaces();
+  const statusEl = document.getElementById("gemini-loc-status");
+  const promptEl = document.getElementById("gemini-loc-prompt");
+
+  if (remaining.length === 0) {
+    statusEl.textContent = places.length === 0
+      ? "データがまだ読み込まれていません。"
+      : "リンク・緯度経度が未設定のスポットはありません。すべて取得済みです。";
+    promptEl.value = "";
+    geminiLocationBatch = [];
+    return;
+  }
+
+  geminiLocationBatch = remaining.slice(0, GEMINI_LOCATION_BATCH_SIZE);
+  promptEl.value = buildGeminiLocationPrompt(geminiLocationBatch);
+  statusEl.textContent = `未取得 ${remaining.length}件中、今回のバッチは${geminiLocationBatch.length}件です。`;
 }
 
 // Open the manual クチコミ add/edit modal. Pass an existing place to edit it
@@ -2007,6 +2101,99 @@ function applyGeminiCategoryResults(results) {
   return applied;
 }
 
+// --- Googleマップリンク・緯度経度のGemini取得（プロンプト方式、2026-07-25実装）---
+// カテゴリー取得（上記）と同じ「プロンプト生成→貼り付け→適用」の差分バッチ方式だが、
+// 対象はGoogleマップリンク（url）または緯度経度（lat/lng）のどちらかが未設定のスポット。
+// 既に値がある項目は上書きしない（空欄埋めのみ）。緯度経度はハルシネーションのリスクが
+// あるため、既存のcheckPlaceLookupCoordinateMismatch（住所由来の都道府県と座標由来の
+// 最寄り都道府県の食い違いチェック）を通し、食い違う場合は反映せず警告のみに留める。
+const GEMINI_LOCATION_BATCH_SIZE = 50;
+// 現在プロンプトに含まれているバッチ（"適用する"時にどのidが対象かの参照用）
+let geminiLocationBatch = [];
+
+// 差分方式の対象：Googleマップリンクまたは緯度経度のどちらかが未設定のスポットのみ
+function getGeminiLocationIncompletePlaces() {
+  return places.filter(p => !p.url || p.lat == null || p.lng == null);
+}
+
+function buildGeminiLocationPrompt(batchPlaces) {
+  const items = batchPlaces.map(p => ({ id: p.id, name: p.name, address: p.address || "" }));
+  return [
+    "以下は日本国内外のスポット（店舗・施設）の名前と住所のリストです。",
+    "それぞれについて、Googleマップ上のそのスポットのリンク（URL）と、緯度・経度を調べてください。",
+    "確信が持てない項目は無理に埋めず、該当するキー自体を省略してください（不正確な値を返すよりは省略を優先してください）。",
+    "出力は説明文を一切含めず、以下の形式のJSON配列のみを返してください（コードブロックも不要です）。",
+    '[{"id": "対象と同じid", "url": "https://maps.google.com/?q=...", "lat": 35.6586, "lng": 139.7454}, ...]',
+    "",
+    "対象リスト:",
+    JSON.stringify(items, null, 2)
+  ].join("\n");
+}
+
+// Geminiの回答テキストをパースする。```json コードフェンス付きでも許容する。
+// 配列でない/JSONとして壊れている場合はnullを返す。url/lat/lngはすべて任意項目で、
+// 値がある場合のみ型・範囲をチェックして採用する（無ければ省略されたものとして扱う）。
+function parseGeminiLocationResponse(text) {
+  if (!text) return null;
+  let cleaned = text.trim();
+  const fenceMatch = cleaned.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  if (fenceMatch) cleaned = fenceMatch[1].trim();
+
+  let data;
+  try {
+    data = JSON.parse(cleaned);
+  } catch (e) {
+    return null;
+  }
+  if (!Array.isArray(data)) return null;
+
+  return data
+    .filter(item => item && typeof item.id === "string")
+    .map(item => {
+      const result = { id: item.id };
+      if (typeof item.url === "string" && item.url.trim()) result.url = item.url.trim();
+      if (typeof item.lat === "number" && typeof item.lng === "number"
+        && item.lat >= -90 && item.lat <= 90 && item.lng >= -180 && item.lng <= 180) {
+        result.lat = item.lat;
+        result.lng = item.lng;
+      }
+      return result;
+    });
+}
+
+// パース済みの結果をplacesへ反映する（空欄埋めのみ、既存値は上書きしない）。
+// 実際に処理した各件について { id, name, urlApplied, coordsApplied, coordsSkippedReason } を返す
+// （呼び出し側がGeminiの回答内容そのものをUIへ表示できるように、件数だけでなく中身も渡す）。
+function applyGeminiLocationResults(results) {
+  const applied = [];
+  results.forEach(({ id, url, lat, lng }) => {
+    const place = places.find(p => p.id === id);
+    if (!place) return;
+
+    let urlApplied = false;
+    if (!place.url && url) {
+      place.url = url;
+      urlApplied = true;
+    }
+
+    let coordsApplied = false;
+    let coordsSkippedReason = null;
+    if (place.lat == null && place.lng == null && typeof lat === "number" && typeof lng === "number") {
+      const mismatch = checkPlaceLookupCoordinateMismatch({ address: place.address, name: place.name, lat, lng });
+      if (mismatch) {
+        coordsSkippedReason = mismatch;
+      } else {
+        place.lat = lat;
+        place.lng = lng;
+        coordsApplied = true;
+      }
+    }
+
+    applied.push({ id: place.id, name: place.name, urlApplied, coordsApplied, coordsSkippedReason });
+  });
+  return applied;
+}
+
 // --- スポット情報のGemini検索（手動追加の補助、2026-07-24実装）---
 // Takeoutの600件上限等で漏れた古いクチコミを手動で追加する際、正式名称・住所・
 // 緯度経度・カテゴリーをうろ覚えの情報（都道府県+店名など）からGeminiに検索して
@@ -3422,5 +3609,5 @@ function loadSampleData() {
 
 // Expose pure logic functions for Node-based tests (no-op in the browser).
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { classifyCategory, extractPrefecture, parseAppBackupJSON, getAllCategories, customCategories, geminiCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, summarizeUnresolvedMyCategoryNames, getOrCreateGeminiCategory, buildGeminiCategoryPrompt, parseGeminiCategoryResponse, applyGeminiCategoryResults, parsePlaceLookupQueries, buildPlaceLookupPrompt, parsePlaceLookupResponse, checkPlaceLookupCoordinateMismatch, buildManualPlaceFieldsFromLookupCandidate, deduplicatePlaces, places };
+  module.exports = { classifyCategory, extractPrefecture, parseAppBackupJSON, getAllCategories, customCategories, geminiCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, summarizeUnresolvedMyCategoryNames, getOrCreateGeminiCategory, buildGeminiCategoryPrompt, parseGeminiCategoryResponse, applyGeminiCategoryResults, getGeminiLocationIncompletePlaces, buildGeminiLocationPrompt, parseGeminiLocationResponse, applyGeminiLocationResults, parsePlaceLookupQueries, buildPlaceLookupPrompt, parsePlaceLookupResponse, checkPlaceLookupCoordinateMismatch, buildManualPlaceFieldsFromLookupCandidate, deduplicatePlaces, places };
 }
