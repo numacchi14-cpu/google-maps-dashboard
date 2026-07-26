@@ -152,45 +152,6 @@
       </div>
     </div>
 
-    <!-- 詳しい説明（OAuth審査用の要約カードから移動した内容。操作エリアより下に配置し、
-         要約カード側をコンパクトに保つ。表示はdisplay:none/タブ/モーダル/閉じたdetailsに
-         隠さず、常に開いた通常のセクションとして表示する） -->
-    <section class="app-details">
-      <h2>Spotlogについて（詳しい説明）</h2>
-      <p>
-        NUM-ISH運営者の菱沼政彦が個人で開発・運営しています。
-        通常のデータ処理は利用者のブラウザ内で行われ、運営者が管理するサーバーへ送信されることはありません。
-        利用者がGoogle Drive連携を選択した場合に限り、バックアップデータは利用者のブラウザからGoogle Driveへ直接送信されます。
-      </p>
-      <p>
-        主な機能：Google Takeoutから書き出した利用者自身のデータの読み込み／保存した場所やクチコミの検索・分類／地図やグラフによる可視化／ローカルデータの編集・バックアップ／任意のGoogleドライブ連携。
-        Googleマップに蓄積した自分自身の記録を整理し、場所・クチコミ・評価・行動の傾向などを振り返りたい方を対象としています。
-      </p>
-
-      <h2>Googleドライブ連携について（詳しい説明）</h2>
-      <ul>
-        <li>Googleドライブ連携は任意</li>
-        <li>使用する権限は<code>drive.file</code>のみ</li>
-        <li>Spotlogが作成するバックアップファイルを、利用者自身のGoogleドライブへ保存・読み込みするためだけに使用</li>
-        <li>Google Drive全体へのアクセス権は要求しない</li>
-        <li>氏名、メールアドレス、プロフィール情報は取得しない</li>
-        <li>広告利用、データ販売、目的外の第三者提供は行わない</li>
-      </ul>
-      <p>Spotlogは、Google LLCまたはGoogleの関連会社が提供・運営するサービスではありません。</p>
-
-      <h2 lang="en">About Spotlog and Google Drive Integration</h2>
-      <p lang="en">
-        Spotlog is a personal web application that helps users organize and
-        visualize their own Google Maps records. Optional Google Drive integration
-        uses the drive.file scope only to save and restore the backup file created
-        by Spotlog. Spotlog does not request access to the user's entire Google Drive.
-      </p>
-
-      <p class="app-about-links">
-        <a href="privacy.html">プライバシーポリシー</a>・<a href="terms.html">利用規約</a>・<a href="help.html">使い方ガイド</a>・<a href="mailto:numacchi14@gmail.com">お問い合わせ</a>
-      </p>
-    </section>
-
     <!-- Dashboard Content (hidden initially) -->
     <div class="dashboard-grid" id="dashboard-section">
       <!-- Stats Summary -->
@@ -329,7 +290,45 @@
         </div>
       </div>
     </div>
-    </div>
+
+    <!-- 詳しい説明（OAuth審査用の要約カードから移動した内容。dashboard-sectionの後、
+         フッターの前に常時DOMとして存在させる。データの有無で分岐させず、
+         display:none/タブ/モーダル/閉じたdetailsにも入れない） -->
+    <section class="app-details">
+      <h2>Spotlogについて（詳しい説明）</h2>
+      <p>
+        NUM-ISH運営者の菱沼政彦が個人で開発・運営しています。
+        通常のデータ処理は利用者のブラウザ内で行われ、運営者が管理するサーバーへ送信されることはありません。
+        利用者がGoogle Drive連携を選択した場合に限り、バックアップデータは利用者のブラウザからGoogle Driveへ直接送信されます。
+      </p>
+      <p>
+        主な機能：Google Takeoutから書き出した利用者自身のデータの読み込み／保存した場所やクチコミの検索・分類／地図やグラフによる可視化／ローカルデータの編集・バックアップ／任意のGoogleドライブ連携。
+        Googleマップに蓄積した自分自身の記録を整理し、場所・クチコミ・評価・行動の傾向などを振り返りたい方を対象としています。
+      </p>
+
+      <h2>Googleドライブ連携について（詳しい説明）</h2>
+      <ul>
+        <li>Googleドライブ連携は任意</li>
+        <li>使用する権限は<code>drive.file</code>のみ</li>
+        <li>Spotlogが作成するバックアップファイルを、利用者自身のGoogleドライブへ保存・読み込みするためだけに使用</li>
+        <li>Google Drive全体へのアクセス権は要求しない</li>
+        <li>氏名、メールアドレス、プロフィール情報は取得しない</li>
+        <li>広告利用、データ販売、目的外の第三者提供は行わない</li>
+      </ul>
+      <p>Spotlogは、Google LLCまたはGoogleの関連会社が提供・運営するサービスではありません。</p>
+
+      <h2 lang="en">About Spotlog and Google Drive Integration</h2>
+      <p lang="en">
+        Spotlog is a personal web application that helps users organize and
+        visualize their own Google Maps records. Optional Google Drive integration
+        uses the drive.file scope only to save and restore the backup file created
+        by Spotlog. Spotlog does not request access to the user's entire Google Drive.
+      </p>
+
+      <p class="app-about-links">
+        <a href="privacy.html">プライバシーポリシー</a>・<a href="terms.html">利用規約</a>・<a href="help.html">使い方ガイド</a>・<a href="mailto:numacchi14@gmail.com">お問い合わせ</a>
+      </p>
+    </section>
 
     <footer class="app-footer">
       <a href="help.html">使い方ガイド</a>
