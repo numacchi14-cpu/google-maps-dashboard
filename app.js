@@ -10,8 +10,10 @@ let map = null;
 let markersGroup = [];
 let categoryChart = null;
 let prefectureChart = null;
-let currentSortColumn = 'name';
-let currentSortDirection = 'asc';
+// デフォルトは最終更新日の新しい順（自分の直近の編集・取り込みがすぐ確認できるように、
+// 2026-07-26変更。従来はスポット名の昇順だった）。
+let currentSortColumn = 'updateTime';
+let currentSortDirection = 'desc';
 // カテゴリー比率チャートの集計軸: 'google'（Google連動カテゴリー、生ラベルそのまま）
 // または 'my'（マイカテゴリー。未設定はGoogle連動にフォールバック＝従来の実効値）
 let categoryChartAxis = 'google';
@@ -32,8 +34,17 @@ let editingManualPlaceId = null;
 // changes from the user's other devices' perspective. Drives the beforeunload
 // warning below.
 let hasUnsavedChanges = false;
-function markUnsavedChanges() { hasUnsavedChanges = true; scheduleLocalCacheWrite(); }
-function clearUnsavedChanges() { hasUnsavedChanges = false; }
+function markUnsavedChanges() { hasUnsavedChanges = true; updateUnsavedIndicator(); scheduleLocalCacheWrite(); }
+function clearUnsavedChanges() { hasUnsavedChanges = false; updateUnsavedIndicator(); }
+
+// beforeunloadの警告はタブを閉じる/リロードする瞬間にしか出ないため、開きっぱなしで
+// 作業を続けている間は気づく手段が無かった。Driveに保存ボタンの隣に常時表示のバッジを置き、
+// 未保存の変更がある間はいつでも一目で分かるようにする。
+function updateUnsavedIndicator() {
+  const el = document.getElementById("unsaved-indicator");
+  if (!el) return;
+  el.style.display = hasUnsavedChanges ? "inline-flex" : "none";
+}
 
 // Per-device ON/OFF preference for the local offline cache (below). Kept in
 // localStorage (not IndexedDB) since it's app preference metadata, not place
@@ -220,6 +231,24 @@ function initMap() {
   }).addTo(map);
 }
 
+// 一覧テーブルのソート矢印アイコンを、現在のcurrentSortColumn/currentSortDirectionに
+// 合わせて更新する。列ヘッダークリック時と、初期表示（デフォルトソートの反映）の両方から呼ぶ。
+function updateSortIcons() {
+  // lucide.createIcons()は初回描画時に<i data-lucide="...">を<svg data-lucide="...">に
+  // 置き換える（タグ自体がiではなくなる）ため、"th i"では2回目以降ヒットしない
+  // （回帰: 列ヘッダーをクリックしても矢印の向きが一度も変わっていなかった不具合）。
+  // タグ名を問わず[data-lucide]属性で辿る。
+  document.querySelectorAll("th[data-sort] [data-lucide]").forEach(icon => {
+    const th = icon.closest("th[data-sort]");
+    if (th.getAttribute("data-sort") === currentSortColumn) {
+      icon.setAttribute("data-lucide", currentSortDirection === 'asc' ? 'chevron-up' : 'chevron-down');
+    } else {
+      icon.setAttribute("data-lucide", "chevrons-up-down");
+    }
+  });
+  if (typeof lucide !== "undefined") lucide.createIcons();
+}
+
 // Setup Event Listeners
 function setupEventListeners() {
   const dropZone = document.getElementById("drop-zone");
@@ -335,20 +364,14 @@ function setupEventListeners() {
         currentSortColumn = col;
         currentSortDirection = 'asc';
       }
-      
-      // Update arrows UI
-      document.querySelectorAll("th i").forEach(icon => {
-        icon.setAttribute("data-lucide", "chevrons-up-down");
-      });
-      const icon = th.querySelector("i");
-      if (icon) {
-        icon.setAttribute("data-lucide", currentSortDirection === 'asc' ? 'chevron-up' : 'chevron-down');
-      }
-      lucide.createIcons();
-
+      updateSortIcons();
       filterAndRender();
     });
   });
+  // 初期状態（デフォルトソート）にも矢印を反映しておく。クリックするまで
+  // chevrons-up-down のままだと、実際は最終更新日の降順で並んでいるのに
+  // 見た目上どの列でソートされているか分からない。
+  updateSortIcons();
 
   // Export & Reset
   btnExportCsv.addEventListener("click", exportCSV);
@@ -731,12 +754,12 @@ function openManualAdd(place) {
     document.getElementById("manual-url").value = place.url || "";
     document.getElementById("manual-date").value = place.publishTime ? place.publishTime.replace(/\//g, "-") : "";
     document.getElementById("manual-coords").value = (place.lat && place.lng) ? `${place.lat}, ${place.lng}` : "";
-    title.textContent = "クチコミを編集";
+    title.textContent = "ログを編集";
     submitBtn.innerHTML = '<i data-lucide="save"></i> 保存する';
   } else {
     editingManualPlaceId = null;
     form.reset();
-    title.textContent = "クチコミを手動で追加";
+    title.textContent = "ログを手動で追加";
     submitBtn.innerHTML = '<i data-lucide="plus"></i> 追加する';
   }
   lucide.createIcons();
@@ -2557,7 +2580,7 @@ function renderPlaceLookupResults(results) {
     if (result.candidates.length === 0) {
       const empty = document.createElement("p");
       empty.className = "place-lookup-empty";
-      empty.textContent = "候補が見つかりませんでした。「クチコミを手動で追加」から直接入力してください。";
+      empty.textContent = "候補が見つかりませんでした。「ログを手動で追加」から直接入力してください。";
       block.appendChild(empty);
       container.appendChild(block);
       return;
@@ -2817,7 +2840,9 @@ function filterAndRender() {
     const matchCatGoogle = !catGoogleVal || p.category === catGoogleVal;
     const matchCatMy = !catMyVal || (catMyVal === "__unset__" ? !p.myCategory : p.myCategory === catMyVal);
     const matchRating = !minRating || (p.rating && p.rating >= minRating);
-    const matchDate = matchesDateRange(p.publishTime, dateFrom, dateTo);
+    // 「最終更新日で絞り込み」なので updateTime を見る（2026-07-26修正：以前は列表示・
+    // ソートと同じくpublishTime＝初回投稿日を見ており、ラベルと実際の挙動がズレていた）。
+    const matchDate = matchesDateRange(p.updateTime, dateFrom, dateTo);
     return matchSearch && matchPref && matchCatGoogle && matchCatMy && matchRating && matchDate;
   });
 
@@ -3109,11 +3134,11 @@ function renderTable(filteredList) {
     commentTd.setAttribute("data-label", "レビュー・メモ");
     commentTd.innerHTML = p.comment ? `<div class="cell-scrollable" title="${p.comment}">${p.comment}</div>` : `<div class="cell-scrollable">-</div>`;
 
-    // Update Date Column (derived from publishTime / date property)
+    // Update Date Column
     const updTd = document.createElement("td");
     updTd.className = "col-upd-date";
     updTd.setAttribute("data-label", "最終更新日");
-    updTd.textContent = p.publishTime || "-";
+    updTd.textContent = p.updateTime || "-";
 
     // Actions Column (Delete, Center Map, Edit for manual entries)
     const actTd = document.createElement("td");

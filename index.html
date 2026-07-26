@@ -31,6 +31,9 @@
         <button class="btn btn-primary" id="btn-drive-save" type="button" style="display: none;">
           <i data-lucide="cloud-upload"></i> Driveに保存
         </button>
+        <span class="unsaved-indicator" id="unsaved-indicator" style="display: none;" title="Driveに保存またはJSONエクスポートするまで、この変更は他の端末からは見えません">
+          <i data-lucide="circle-dot" style="width:10px;height:10px;"></i> 未保存の変更があります
+        </span>
         <span class="drive-sync-status" id="drive-sync-status"></span>
 
         <label class="local-cache-toggle-wrap" for="local-cache-toggle" title="このデバイスにデータをキャッシュし、オフラインでも直近のデータを見られるようにします。共有PCではOFFにしてください。">
@@ -50,19 +53,19 @@
           <i data-lucide="external-link"></i> Google Takeoutを開く
         </a>
         <button class="btn" id="btn-manual-add" type="button">
-          <i data-lucide="plus"></i> クチコミを手動で追加
+          <i data-lucide="plus"></i> ログを手動で追加
         </button>
         <button class="btn" id="btn-place-lookup" type="button">
-          <i data-lucide="map-pin-plus"></i> スポット情報をGeminiで検索
+          <i data-lucide="map-pin-plus"></i> スポット情報をGeminiで調べる
         </button>
         <button class="btn" id="btn-category-settings" type="button">
           <i data-lucide="settings"></i> マイカテゴリー設定
         </button>
         <button class="btn" id="btn-gemini-category" type="button">
-          <i data-lucide="sparkles"></i> カテゴリーをGeminiで取得
+          <i data-lucide="sparkles"></i> Google連動カテゴリーをGeminiで調べる
         </button>
         <button class="btn" id="btn-gemini-location" type="button">
-          <i data-lucide="crosshair"></i> リンク・緯度経度をGeminiで取得
+          <i data-lucide="crosshair"></i> リンク・緯度経度をGeminiで調べる
         </button>
         <button class="btn" id="btn-export-csv">
           <i data-lucide="download"></i> CSVエクスポート
@@ -110,7 +113,7 @@
 
         <div class="manual-add-trigger-container">
           <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.5rem;">Takeoutに含まれていないクチコミ（600件の上限などで漏れたもの）は、手動で追加できます：</p>
-          <button class="btn" id="btn-manual-add-empty" type="button"><i data-lucide="plus"></i> クチコミを手動で追加</button>
+          <button class="btn" id="btn-manual-add-empty" type="button"><i data-lucide="plus"></i> ログを手動で追加</button>
         </div>
       </div>
     </div>
@@ -195,7 +198,7 @@
             <thead>
               <tr>
                 <th class="col-name" data-sort="name">スポット名 <i data-lucide="chevrons-up-down" style="width:14px;height:14px;vertical-align:middle;display:inline-block;"></i></th>
-                <th class="col-upd-date" data-sort="publishTime">最終更新日 <i data-lucide="chevrons-up-down" style="width:14px;height:14px;vertical-align:middle;display:inline-block;"></i></th>
+                <th class="col-upd-date" data-sort="updateTime">最終更新日 <i data-lucide="chevrons-up-down" style="width:14px;height:14px;vertical-align:middle;display:inline-block;"></i></th>
                 <th class="col-rating" data-sort="rating">評価 <i data-lucide="chevrons-up-down" style="width:14px;height:14px;vertical-align:middle;display:inline-block;"></i></th>
                 <th class="col-actions">操作</th>
                 <th class="col-pref" data-sort="prefecture">都道府県 <i data-lucide="chevrons-up-down" style="width:14px;height:14px;vertical-align:middle;display:inline-block;"></i></th>
@@ -273,13 +276,14 @@
   <div class="modal-overlay" id="manual-add-overlay">
     <div class="glass-card modal-card">
       <div class="card-header">
-        <h3 class="card-title" id="manual-add-title"><i data-lucide="plus"></i> クチコミを手動で追加</h3>
+        <h3 class="card-title" id="manual-add-title"><i data-lucide="plus"></i> ログを手動で追加</h3>
         <button class="modal-close-btn" id="manual-add-close" type="button" aria-label="閉じる">
           <i data-lucide="x"></i>
         </button>
       </div>
       <p class="modal-desc">
         Google Takeoutの口コミエクスポートには件数の上限があり、漏れてしまったクチコミが出ることがあります。ここで直接追加すれば、他のデータと同じように一覧・グラフ・地図に反映されます（保存後、都道府県・カテゴリーの手動編集も可能です）。
+        追加した内容はこのアプリ内だけの記録です。Googleマップ本体への投稿・反映は行われません。
       </p>
       <form id="manual-add-form" class="manual-add-form">
         <input type="text" id="manual-name" class="search-input" placeholder="スポット名（必須）" maxlength="100" required>
@@ -341,7 +345,7 @@
   <div class="modal-overlay" id="gemini-category-overlay">
     <div class="glass-card modal-card">
       <div class="card-header">
-        <h3 class="card-title"><i data-lucide="sparkles"></i> Google連動カテゴリーを取得（Gemini）</h3>
+        <h3 class="card-title"><i data-lucide="sparkles"></i> Google連動カテゴリーをGeminiで調べる</h3>
         <button class="modal-close-btn" id="gemini-category-close" type="button" aria-label="閉じる">
           <i data-lucide="x"></i>
         </button>
@@ -377,7 +381,7 @@
   <div class="modal-overlay" id="gemini-location-overlay">
     <div class="glass-card modal-card">
       <div class="card-header">
-        <h3 class="card-title"><i data-lucide="crosshair"></i> Googleマップリンク・緯度経度を取得（Gemini）</h3>
+        <h3 class="card-title"><i data-lucide="crosshair"></i> リンク・緯度経度をGeminiで調べる</h3>
         <button class="modal-close-btn" id="gemini-location-close" type="button" aria-label="閉じる">
           <i data-lucide="x"></i>
         </button>
@@ -413,13 +417,13 @@
   <div class="modal-overlay" id="place-lookup-overlay">
     <div class="glass-card modal-card">
       <div class="card-header">
-        <h3 class="card-title"><i data-lucide="map-pin-plus"></i> スポット情報をGeminiで検索</h3>
+        <h3 class="card-title"><i data-lucide="map-pin-plus"></i> スポット情報をGeminiで調べる</h3>
         <button class="modal-close-btn" id="place-lookup-close" type="button" aria-label="閉じる">
           <i data-lucide="x"></i>
         </button>
       </div>
       <p class="modal-desc">
-        Takeoutの上限（600件など）で漏れてしまった古いクチコミを手動で追加する際、正式名称・住所・緯度経度・カテゴリーをGeminiに検索してもらえます。
+        Takeoutの上限（600件など）で漏れてしまった古いログを手動で追加する際、正式名称・住所・緯度経度・カテゴリーをGeminiに調べてもらえます。
         評価やコメントはGeminiには分からないため空欄のまま追加されます。追加後、一覧の編集アイコンから書き足してください。
       </p>
       <p class="gemini-cat-status" id="place-lookup-status"></p>
