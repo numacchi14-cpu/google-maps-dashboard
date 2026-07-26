@@ -1,5 +1,11 @@
 // Application State
 let places = [];
+// 削除済みスポットのゴミ箱（誤削除からの復元用）。ここに入っている項目のマッチキー
+// （buildPlaceMatchKey）は、Takeout等の再インポート時に自動再登録されないよう
+// handleFiles側で除外フィルターとしても使う。「削除済みスポット」ボタンから
+// 個別に復元／完全削除できる。端末ローカルのみで、ローカルキャッシュのON/OFFに連動する
+// （4節のプライバシー方針と同じ理由：氏名・住所を含むデータのため）。
+let deletedPlaces = [];
 let map = null;
 let markersGroup = [];
 let categoryChart = null;
@@ -262,6 +268,14 @@ function setupEventListeners() {
   const btnPlaceLookupGenerate = document.getElementById("btn-place-lookup-generate");
   const btnPlaceLookupCopyPrompt = document.getElementById("btn-place-lookup-copy-prompt");
   const btnPlaceLookupApply = document.getElementById("btn-place-lookup-apply");
+  const unknownSpotOverlay = document.getElementById("unknown-spot-overlay");
+  const unknownSpotClose = document.getElementById("unknown-spot-close");
+  const unknownSpotSelectAll = document.getElementById("unknown-spot-select-all");
+  const btnUnknownSpotDelete = document.getElementById("btn-unknown-spot-delete");
+  const btnUnknownSpotKeep = document.getElementById("btn-unknown-spot-keep");
+  const btnDeletedSpots = document.getElementById("btn-deleted-spots");
+  const deletedSpotsOverlay = document.getElementById("deleted-spots-overlay");
+  const deletedSpotsClose = document.getElementById("deleted-spots-close");
 
   // Google Drive sync
   btnDriveConnect.addEventListener("click", connectGoogleDrive);
@@ -529,6 +543,38 @@ function setupEventListeners() {
     renderPlaceLookupResults(results);
     const totalCandidates = results.reduce((sum, r) => sum + r.candidates.length, 0);
     statusEl.textContent = `${results.length}件中、候補が見つかったのは${results.filter(r => r.candidates.length > 0).length}件です（候補${totalCandidates}件）。追加したいものを選んでください。`;
+  });
+
+  // 不明なスポットの確認（閉店等でGoogle側から名前が取得できなかった項目の削除確認）
+  unknownSpotClose.addEventListener("click", closeUnknownSpotModal);
+  btnUnknownSpotKeep.addEventListener("click", closeUnknownSpotModal);
+  unknownSpotOverlay.addEventListener("click", (e) => {
+    if (e.target === unknownSpotOverlay) closeUnknownSpotModal();
+  });
+  unknownSpotSelectAll.addEventListener("change", (e) => {
+    document.querySelectorAll(".unknown-spot-checkbox").forEach(cb => {
+      cb.checked = e.target.checked;
+    });
+  });
+  btnUnknownSpotDelete.addEventListener("click", () => {
+    const idsToDelete = Array.from(document.querySelectorAll(".unknown-spot-checkbox:checked"))
+      .map(cb => cb.dataset.id);
+    if (idsToDelete.length === 0) {
+      alert("削除するスポットを選択してください。");
+      return;
+    }
+    if (!confirm(`選択した${idsToDelete.length}件を削除します（「削除済みスポット」から復元できます）。よろしいですか？`)) return;
+    moveToTrash(idsToDelete);
+    setupDropdownFilters();
+    filterAndRender();
+    closeUnknownSpotModal();
+  });
+
+  // 削除済みスポット（ゴミ箱）
+  btnDeletedSpots.addEventListener("click", openDeletedSpotsModal);
+  deletedSpotsClose.addEventListener("click", closeDeletedSpotsModal);
+  deletedSpotsOverlay.addEventListener("click", (e) => {
+    if (e.target === deletedSpotsOverlay) closeDeletedSpotsModal();
   });
 
   // カテゴリー比率チャートの集計軸切り替え（Google連動 / マイカテゴリー）
@@ -950,6 +996,8 @@ function resetApp() {
 
   if (confirm("データをリセットしますか？")) {
     places = [];
+    deletedPlaces = [];
+    updateTrashBadge();
     customCategories = {};
     geminiCategories = {};
     clearUnsavedChanges();
@@ -1043,6 +1091,16 @@ async function handleFiles(files) {
       }
     }
 
+    // 一覧から削除してゴミ箱に入れたスポットは、Takeout等の再インポートで自動的に
+    // 復活させない（マッチキーが一致するものを取り込み対象から除外する）。
+    let trashSuppressedCount = 0;
+    if (newPlaces.length > 0 && deletedPlaces.length > 0) {
+      const deletedKeySet = new Set(deletedPlaces.map(buildPlaceMatchKey));
+      const beforeCount = newPlaces.length;
+      newPlaces = newPlaces.filter(p => !deletedKeySet.has(buildPlaceMatchKey(p)));
+      trashSuppressedCount = beforeCount - newPlaces.length;
+    }
+
     const hasNewPlaces = newPlaces.length > 0;
     if (hasNewPlaces) {
       places = places.concat(newPlaces);
@@ -1055,8 +1113,12 @@ async function handleFiles(files) {
       setupDropdownFilters();
       filterAndRender();
       showDashboard();
-    } else {
+    } else if (trashSuppressedCount === 0) {
       alert("有効なGoogle Mapsデータが検出されませんでした。");
+    }
+
+    if (trashSuppressedCount > 0) {
+      alert(`${trashSuppressedCount}件は削除済みスポットのため取り込みませんでした。誤って削除した場合は「削除済みスポット」から復元してください。`);
     }
 
     if (manualImportHappened) {
@@ -1068,6 +1130,12 @@ async function handleFiles(files) {
         `マイカテゴリー ${summarizeUnresolvedMyCategoryNames(unresolvedMyCategoryNames)} は未登録のため反映されませんでした。\n` +
         `先に「マイカテゴリー設定」で作成してから、もう一度CSVを読み込んでください。`
       );
+    }
+
+    // 閉店・削除済みスポット等でGoogle側から名前を取得できなかった項目が今回の
+    // 取り込みに含まれていないか確認する（手動入力CSVのみの取り込みでは発生しないため対象外）。
+    if (hasNewPlaces && getUnknownSpots().length > 0) {
+      openUnknownSpotModal();
     }
   } catch (e) {
     console.error("Unexpected error while importing files:", e);
@@ -1848,6 +1916,17 @@ function normalizeDateForCompare(dateStr) {
   return `${y.padStart(4, "0")}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
 }
 
+// 「同一スポットか」を判定するマッチキー。URL→緯度経度→名前+住所の3段階（重複排除・
+// ゴミ箱による再登録抑止の両方で共通して使う）。
+function buildPlaceMatchKey(item) {
+  if (item.url) {
+    return item.url;
+  } else if (item.lat && item.lng) {
+    return `${(item.name || "").toLowerCase()}-${item.lat.toFixed(4)}-${item.lng.toFixed(4)}`;
+  }
+  return `${(item.name || "").toLowerCase()}-${(item.address || "").toLowerCase()}`;
+}
+
 // Deduplicate places list
 function deduplicatePlaces(list) {
   // Keyed by the same match key used to detect duplicates (URL, else
@@ -1862,14 +1941,7 @@ function deduplicatePlaces(list) {
   const uniqueByKey = new Map();
 
   list.forEach(item => {
-    let key = "";
-    if (item.url) {
-      key = item.url;
-    } else if (item.lat && item.lng) {
-      key = `${(item.name || "").toLowerCase()}-${item.lat.toFixed(4)}-${item.lng.toFixed(4)}`;
-    } else {
-      key = `${(item.name || "").toLowerCase()}-${(item.address || "").toLowerCase()}`;
-    }
+    const key = buildPlaceMatchKey(item);
 
     const existing = uniqueByKey.get(key);
     if (!existing) {
@@ -1913,6 +1985,115 @@ function deduplicatePlaces(list) {
   });
 
   return Array.from(uniqueByKey.values());
+}
+
+// --- 削除済みスポット（ゴミ箱） ---
+// 一覧の削除ボタン・不明なスポットの一括削除は、どちらもここを経由して「即消去」ではなく
+// ゴミ箱送りにする。ゴミ箱にある間はマッチキー（buildPlaceMatchKey）がhandleFilesの
+// 取り込みフィルターに使われ、Takeout等の再インポートで自動的に復活しないようにする。
+function moveToTrash(ids) {
+  const idSet = new Set(ids);
+  const toDelete = places.filter(p => idSet.has(p.id));
+  if (toDelete.length === 0) return;
+  places = places.filter(p => !idSet.has(p.id));
+  deletedPlaces = deletedPlaces.concat(toDelete);
+  markUnsavedChanges();
+  updateTrashBadge();
+}
+
+function restorePlaceFromTrash(id) {
+  const idx = deletedPlaces.findIndex(p => p.id === id);
+  if (idx === -1) return;
+  const [place] = deletedPlaces.splice(idx, 1);
+  places.push(place);
+  markUnsavedChanges();
+  setupDropdownFilters();
+  filterAndRender();
+  renderDeletedSpotsList();
+  updateTrashBadge();
+}
+
+// ゴミ箱から完全に消す（＝以後は再インポートで復活してよい、という明示的な選択）。
+// exportJSON/saveToDrive同様の「取り消せる保存」ではなく端末ローカルの一時領域なので、
+// hasUnsavedChangesは動かさずローカルキャッシュの書き込みだけ予約する。
+function purgePlaceFromTrash(id) {
+  deletedPlaces = deletedPlaces.filter(p => p.id !== id);
+  scheduleLocalCacheWrite();
+  renderDeletedSpotsList();
+  updateTrashBadge();
+}
+
+function updateTrashBadge() {
+  const badge = document.getElementById("deleted-spots-count");
+  if (!badge) return;
+  badge.textContent = deletedPlaces.length > 0 ? `(${deletedPlaces.length})` : "";
+}
+
+function renderDeletedSpotsList() {
+  const listEl = document.getElementById("deleted-spots-list");
+  if (!listEl) return;
+  listEl.innerHTML = "";
+
+  if (deletedPlaces.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "unknown-spot-empty";
+    empty.textContent = "削除済みスポットはありません。";
+    listEl.appendChild(empty);
+    return;
+  }
+
+  deletedPlaces.forEach(spot => {
+    const item = document.createElement("div");
+    item.className = "unknown-spot-item deleted-spot-item";
+
+    const info = document.createElement("div");
+    info.className = "unknown-spot-item-info";
+    const nameEl = document.createElement("strong");
+    nameEl.textContent = spot.name;
+    info.appendChild(nameEl);
+    const metaEl = document.createElement("span");
+    const metaParts = [
+      spot.address || "住所不明",
+      spot.prefecture || "都道府県不明",
+      spot.rating ? `★${spot.rating}` : "評価なし"
+    ].filter(Boolean);
+    metaEl.textContent = metaParts.join(" / ");
+    info.appendChild(metaEl);
+    item.appendChild(info);
+
+    const actions = document.createElement("div");
+    actions.className = "deleted-spot-item-actions";
+
+    const restoreBtn = document.createElement("button");
+    restoreBtn.className = "btn btn-primary";
+    restoreBtn.type = "button";
+    restoreBtn.textContent = "復元する";
+    restoreBtn.addEventListener("click", () => restorePlaceFromTrash(spot.id));
+    actions.appendChild(restoreBtn);
+
+    const purgeBtn = document.createElement("button");
+    purgeBtn.className = "btn";
+    purgeBtn.type = "button";
+    purgeBtn.textContent = "完全に削除";
+    purgeBtn.addEventListener("click", () => {
+      if (confirm(`「${spot.name}」を完全に削除しますか？（以後、再インポートすると復活する可能性があります）`)) {
+        purgePlaceFromTrash(spot.id);
+      }
+    });
+    actions.appendChild(purgeBtn);
+
+    item.appendChild(actions);
+    listEl.appendChild(item);
+  });
+}
+
+function openDeletedSpotsModal() {
+  renderDeletedSpotsList();
+  document.getElementById("deleted-spots-overlay").classList.add("active");
+}
+
+function closeDeletedSpotsModal() {
+  document.getElementById("deleted-spots-overlay").classList.remove("active");
 }
 
 // Extract Prefecture Name from Address / Title with Coordinates Fallback
@@ -2457,6 +2638,74 @@ function closePlaceLookupModal() {
   document.getElementById("place-lookup-overlay").classList.remove("active");
 }
 
+// 不明なスポットの確認（閉店・削除等でGoogle側からスポット名を取得できなかった項目の削除確認）。
+// extractNameRobustly系のパーサーは名前が一切見つからない場合「不明なスポット」を名前として
+// 埋めるため、そのラベルを目印にスキャンする。取り込み直後の一括確認用であり、常時監視はしない。
+function getUnknownSpots() {
+  return places.filter(p => p.name === "不明なスポット");
+}
+
+function renderUnknownSpotList(spots) {
+  const listEl = document.getElementById("unknown-spot-list");
+  listEl.innerHTML = "";
+
+  if (spots.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "unknown-spot-empty";
+    empty.textContent = "不明なスポットはありません。";
+    listEl.appendChild(empty);
+    return;
+  }
+
+  spots.forEach(spot => {
+    const item = document.createElement("div");
+    item.className = "unknown-spot-item";
+
+    const label = document.createElement("label");
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.className = "unknown-spot-checkbox";
+    checkbox.checked = true;
+    checkbox.dataset.id = spot.id;
+    label.appendChild(checkbox);
+
+    const info = document.createElement("div");
+    info.className = "unknown-spot-item-info";
+    const addrEl = document.createElement("strong");
+    addrEl.textContent = spot.address || "住所不明";
+    info.appendChild(addrEl);
+    const metaEl = document.createElement("span");
+    const metaParts = [
+      spot.prefecture || "都道府県不明",
+      spot.rating ? `★${spot.rating}` : "評価なし",
+      spot.updateTime || spot.publishTime || "日付不明",
+      spot.source || ""
+    ].filter(Boolean);
+    metaEl.textContent = metaParts.join(" / ");
+    info.appendChild(metaEl);
+    if (spot.comment) {
+      const commentEl = document.createElement("span");
+      commentEl.textContent = spot.comment;
+      info.appendChild(commentEl);
+    }
+    label.appendChild(info);
+
+    item.appendChild(label);
+    listEl.appendChild(item);
+  });
+}
+
+function openUnknownSpotModal() {
+  const spots = getUnknownSpots();
+  renderUnknownSpotList(spots);
+  document.getElementById("unknown-spot-select-all").checked = true;
+  document.getElementById("unknown-spot-overlay").classList.add("active");
+}
+
+function closeUnknownSpotModal() {
+  document.getElementById("unknown-spot-overlay").classList.remove("active");
+}
+
 // Populate dropdown filters based on loaded data
 function setupDropdownFilters() {
   const filterPref = document.getElementById("filter-prefecture");
@@ -2901,11 +3150,10 @@ function renderTable(filteredList) {
       });
     }
 
-    // Delete listener
+    // Delete listener（ゴミ箱送り。「削除済みスポット」から復元・完全削除できる）
     actTd.querySelector(".btn-delete").addEventListener("click", () => {
-      if (confirm(`「${p.name}」をリストから削除しますか？`)) {
-        places = places.filter(x => x.id !== p.id);
-        markUnsavedChanges();
+      if (confirm(`「${p.name}」をリストから削除しますか？（「削除済みスポット」から復元できます）`)) {
+        moveToTrash([p.id]);
         setupDropdownFilters();
         filterAndRender();
       }
@@ -3174,8 +3422,8 @@ function escapeCSVValue(val) {
 // Build the full backup payload shared by JSON download export and Google
 // Drive save (both need the exact same self-describing, no-loss structure
 // that parseAppBackupJSON knows how to restore).
-function buildBackupJSONPayload() {
-  return places.map(p => ({
+function buildBackupJSONPayload(list = places) {
+  return list.map(p => ({
     name: p.name,
     prefecture: p.prefecture,
     categoryKey: p.category,
@@ -3289,7 +3537,13 @@ async function writeLocalCache() {
       tx.oncomplete = resolve;
       tx.onerror = () => reject(tx.error);
       tx.objectStore(LOCAL_CACHE_STORE_NAME).put(
-        { updatedAt: new Date().toISOString(), payload: buildBackupJSONPayload() },
+        {
+          updatedAt: new Date().toISOString(),
+          payload: buildBackupJSONPayload(),
+          // ゴミ箱（削除済みスポット）も同じ形で保存し、リロード後も再インポート時の
+          // 自動再登録抑止と「削除済みスポット」からの復元が続けられるようにする。
+          deletedPayload: buildBackupJSONPayload(deletedPlaces)
+        },
         LOCAL_CACHE_RECORD_KEY
       );
     });
@@ -3375,6 +3629,10 @@ async function restoreFromLocalCache() {
     const restored = parseAppBackupJSON(record.payload);
     if (!Array.isArray(restored) || restored.length === 0) return;
     places = restored;
+    if (Array.isArray(record.deletedPayload) && record.deletedPayload.length > 0) {
+      deletedPlaces = parseAppBackupJSON(record.deletedPayload);
+      updateTrashBadge();
+    }
     setupDropdownFilters();
     filterAndRender();
     showDashboard();
@@ -3407,6 +3665,11 @@ function handleLocalCacheToggleChange(enabled) {
   updateLocalCacheToggleUI();
   if (!enabled) {
     clearLocalCache();
+    // ゴミ箱（削除済みスポットの氏名・住所を含む）も、キャッシュ本体と同じ理由で
+    // 端末に平文で残さない（共有PC向け）。
+    deletedPlaces = [];
+    renderDeletedSpotsList();
+    updateTrashBadge();
   }
 }
 
@@ -3847,5 +4110,5 @@ function loadSampleData() {
 
 // Expose pure logic functions for Node-based tests (no-op in the browser).
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { classifyCategory, extractPrefecture, parseAppBackupJSON, getAllCategories, customCategories, geminiCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, summarizeUnresolvedMyCategoryNames, getOrCreateGeminiCategory, buildGeminiCategoryPrompt, parseGeminiCategoryResponse, applyGeminiCategoryResults, getGeminiLocationIncompletePlaces, buildGeminiLocationPrompt, parseGeminiLocationResponse, applyGeminiLocationResults, parsePlaceLookupQueries, buildPlaceLookupPrompt, parsePlaceLookupResponse, checkPlaceLookupCoordinateMismatch, buildManualPlaceFieldsFromLookupCandidate, deduplicatePlaces, places, shouldScheduleLocalCacheWrite };
+  module.exports = { classifyCategory, extractPrefecture, parseAppBackupJSON, getAllCategories, customCategories, geminiCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, summarizeUnresolvedMyCategoryNames, getOrCreateGeminiCategory, buildGeminiCategoryPrompt, parseGeminiCategoryResponse, applyGeminiCategoryResults, getGeminiLocationIncompletePlaces, buildGeminiLocationPrompt, parseGeminiLocationResponse, applyGeminiLocationResults, parsePlaceLookupQueries, buildPlaceLookupPrompt, parsePlaceLookupResponse, checkPlaceLookupCoordinateMismatch, buildManualPlaceFieldsFromLookupCandidate, deduplicatePlaces, buildPlaceMatchKey, places, shouldScheduleLocalCacheWrite };
 }

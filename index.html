@@ -46,6 +46,9 @@
         <button class="btn" id="btn-add-files" type="button">
           <i data-lucide="upload"></i> ファイルを追加読み込み
         </button>
+        <a class="btn" href="https://takeout.google.com/settings/takeout" target="_blank" rel="noopener noreferrer">
+          <i data-lucide="external-link"></i> Google Takeoutを開く
+        </a>
         <button class="btn" id="btn-manual-add" type="button">
           <i data-lucide="plus"></i> クチコミを手動で追加
         </button>
@@ -66,6 +69,9 @@
         </button>
         <button class="btn" id="btn-export-json">
           <i data-lucide="file-json"></i> JSONエクスポート
+        </button>
+        <button class="btn" id="btn-deleted-spots" type="button">
+          <i data-lucide="undo-2"></i> 削除済みスポット<span id="deleted-spots-count" class="deleted-spots-badge"></span>
         </button>
         <button class="btn btn-danger" id="btn-reset" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: #ef4444;">
           <i data-lucide="trash-2"></i> リセット
@@ -444,6 +450,50 @@
       <button class="btn btn-primary" id="btn-place-lookup-apply" type="button"><i data-lucide="check"></i> ④ 候補を表示する</button>
 
       <div id="place-lookup-result-list" class="place-lookup-result-list"></div>
+    </div>
+  </div>
+
+  <!-- 不明なスポットの確認 Modal（閉店等でGoogle側の情報が取得できなくなったスポットの削除確認。Takeout系の読み込み直後に該当があれば自動表示） -->
+  <div class="modal-overlay" id="unknown-spot-overlay">
+    <div class="glass-card modal-card">
+      <div class="card-header">
+        <h3 class="card-title"><i data-lucide="alert-triangle"></i> 不明なスポットの確認</h3>
+        <button class="modal-close-btn" id="unknown-spot-close" type="button" aria-label="閉じる">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <p class="modal-desc">
+        今回読み込んだデータの中に、Google側からスポット名を取得できなかった項目があります（閉店・削除済みのスポットなどでよく発生します）。
+        削除したいものにチェックを入れて「選択した項目を削除」を押してください。何もしなければ一覧にそのまま残ります。
+      </p>
+      <label class="unknown-spot-select-all">
+        <input type="checkbox" id="unknown-spot-select-all" checked>
+        すべて選択／解除
+      </label>
+      <div id="unknown-spot-list" class="unknown-spot-list"></div>
+      <div class="unknown-spot-actions">
+        <button class="btn" id="btn-unknown-spot-keep" type="button">何もせず閉じる</button>
+        <button class="btn" id="btn-unknown-spot-delete" type="button" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: #ef4444;">
+          <i data-lucide="trash-2"></i> 選択した項目を削除
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 削除済みスポット（ゴミ箱）Modal -->
+  <div class="modal-overlay" id="deleted-spots-overlay">
+    <div class="glass-card modal-card">
+      <div class="card-header">
+        <h3 class="card-title"><i data-lucide="undo-2"></i> 削除済みスポット</h3>
+        <button class="modal-close-btn" id="deleted-spots-close" type="button" aria-label="閉じる">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <p class="modal-desc">
+        一覧から削除したスポットはここに残ります。誤って削除した場合は「復元する」で一覧に戻せます。
+        ここにある間は、Google Takeoutなどを再読み込みしても自動的には復活しません。「完全に削除」を押すと、以後の再インポートで復活しうる状態に戻ります。
+      </p>
+      <div id="deleted-spots-list" class="unknown-spot-list"></div>
     </div>
   </div>
 
