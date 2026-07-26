@@ -228,9 +228,21 @@ header {
 .app-about {
   margin-top: 0.6rem;
   max-width: 720px;
+}
+
+.app-about p {
   font-size: 0.82rem !important;
   line-height: 1.6;
   color: var(--text-muted) !important;
+  margin-bottom: 0.5rem;
+}
+
+.app-about p:last-child {
+  margin-bottom: 0;
+}
+
+.app-about-links {
+  font-size: 0.8rem !important;
 }
 
 .app-about code {

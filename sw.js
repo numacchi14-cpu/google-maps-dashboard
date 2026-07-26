@@ -13,6 +13,7 @@ const SHELL_FILES = [
   "/manifest.json",
   "/privacy.html",
   "/help.html",
+  "/terms.html",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
   "/icons/icon-512-maskable.png"

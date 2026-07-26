@@ -37,11 +37,25 @@
       <div class="header-title-container">
         <h1><span class="gradient-text">Spotlog</span></h1>
         <p>Googleマップの「保存済みの場所」「クチコミ」データを読み込み、県別・業種別にビジュアライズします</p>
-        <p class="app-about">
-          Spotlogは、Google Takeoutでダウンロードした Google マップの「保存済みの場所」「クチコミ（レビュー）」データを取り込み、都道府県別・カテゴリー別に一覧・地図・グラフで可視化する無料の個人向けツールです。
-          データの処理はすべてお使いのブラウザ内だけで完結し、外部のサーバーに送信されることはありません。
-          任意で使えるGoogleドライブ連携機能では、<code>drive.file</code>スコープ（このアプリが作成したファイルにのみアクセス可能な限定的な権限）を使い、このアプリが作成したバックアップファイル1つだけをご自身のGoogleドライブに保存・読み込みします。詳しくは<a href="privacy.html">プライバシーポリシー</a>をご覧ください。
-        </p>
+        <div class="app-about">
+          <p>
+            Spotlogは、Googleマップに保存した場所や投稿したクチコミなど、利用者自身の記録を整理・可視化し、これまでの行動や体験を振り返るための個人向けWebアプリです。
+            NUM-ISH運営者の菱沼政彦が個人で開発・運営しています。データの処理はすべてお使いのブラウザ内だけで完結し、外部のサーバーに送信されることはありません。
+          </p>
+          <p>
+            主な機能：Google Takeoutから書き出した利用者自身のデータの読み込み／保存した場所やクチコミの検索・分類／地図やグラフによる可視化／ローカルデータの編集・バックアップ／任意のGoogleドライブ連携。
+            Googleマップに蓄積した自分自身の記録を整理し、場所・クチコミ・評価・行動の傾向などを振り返りたい方を対象としています。
+          </p>
+          <p>
+            Googleドライブ連携は任意の機能です。利用した場合、このアプリが作成したバックアップファイルをご自身のGoogleドライブへ保存・読み込みするためだけに、
+            <code>drive.file</code>スコープ（このアプリが作成したファイルにのみアクセス可能な限定的な権限）を使用します。氏名・メールアドレス・プロフィール情報は取得せず、
+            ドライブ全体へのアクセス権も要求しません。取得した情報の販売や、広告配信・パーソナライズ広告への利用も行いません。
+          </p>
+          <p>Spotlogは、Google LLCまたはGoogleの関連会社が提供・運営するサービスではありません。</p>
+          <p class="app-about-links">
+            <a href="privacy.html">プライバシーポリシー</a>・<a href="terms.html">利用規約</a>・<a href="help.html">使い方ガイド</a>・<a href="mailto:numacchi14@gmail.com">お問い合わせ</a>
+          </p>
+        </div>
       </div>
       <div class="drive-sync" id="drive-sync">
         <button class="btn" id="btn-drive-connect" type="button">
@@ -280,6 +294,8 @@
     <footer class="app-footer">
       <a href="help.html">使い方ガイド</a>
       <a href="privacy.html">プライバシーポリシー</a>
+      <a href="terms.html">利用規約</a>
+      <a href="mailto:numacchi14@gmail.com">お問い合わせ</a>
       <a href="https://github.com/numacchi14-cpu/google-maps-dashboard" target="_blank" rel="noopener noreferrer">GitHub</a>
     </footer>
   </div>
