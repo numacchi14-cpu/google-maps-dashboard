@@ -33,71 +33,54 @@
 <body>
 
   <div class="app-container">
-    <header>
-      <div class="header-title-container">
-        <h1>Spotlog</h1>
-        <p>Googleマップの「保存済みの場所」「クチコミ」データを読み込み、県別・業種別にビジュアライズします</p>
-        <div class="app-about">
-          <h2>Spotlogについて</h2>
-          <p>
-            Spotlogは、Googleマップに保存した場所や投稿したクチコミなど、利用者自身の記録を整理・検索・可視化し、
-            これまでの行動や体験を振り返るための個人向けWebアプリです。
+    <header class="app-header">
+      <div class="hero-row">
+        <!-- OAuth審査用のコンパクトな要約カード。Drive連携ボタンより前、ファーストビュー内に
+             収まる分量だけを残す（詳しい説明は下の.app-detailsセクションへ移動済み）。 -->
+        <div class="hero-card">
+          <h1>Spotlog</h1>
+          <p class="hero-lead">
+            Spotlogは、Googleマップに保存した場所や投稿したクチコミなど、利用者自身の記録を整理・可視化する個人向けWebアプリです。
           </p>
-          <p>
-            NUM-ISH運営者の菱沼政彦が個人で開発・運営しています。
-            通常のデータ処理は利用者のブラウザ内で行われ、運営者が管理するサーバーへ送信されることはありません。利用者がGoogle Drive連携を選択した場合に限り、バックアップデータは利用者のブラウザからGoogle Driveへ直接送信されます。
-          </p>
-          <p>
-            主な機能：Google Takeoutから書き出した利用者自身のデータの読み込み／保存した場所やクチコミの検索・分類／地図やグラフによる可視化／ローカルデータの編集・バックアップ／任意のGoogleドライブ連携。
-            Googleマップに蓄積した自分自身の記録を整理し、場所・クチコミ・評価・行動の傾向などを振り返りたい方を対象としています。
-          </p>
-
-          <h2>Googleドライブ連携の目的</h2>
-          <ul>
-            <li>Googleドライブ連携は任意</li>
-            <li>使用する権限は<code>drive.file</code>のみ</li>
-            <li>Spotlogが作成するバックアップファイルを、利用者自身のGoogleドライブへ保存・読み込みするためだけに使用</li>
-            <li>Google Drive全体へのアクセス権は要求しない</li>
-            <li>氏名、メールアドレス、プロフィール情報は取得しない</li>
-            <li>広告利用、データ販売、目的外の第三者提供は行わない</li>
+          <ul class="hero-drive-facts">
+            <li>Googleドライブ連携は任意です</li>
+            <li><code>drive.file</code>を、Spotlogが作成するバックアップの保存・読み込みだけに使用します</li>
+            <li>Google Drive全体、氏名、メールアドレス、プロフィールへはアクセスしません</li>
           </ul>
-          <p>Spotlogは、Google LLCまたはGoogleの関連会社が提供・運営するサービスではありません。</p>
-
-          <h2 lang="en">Purpose of Google Drive Integration</h2>
-          <p lang="en">
-            Spotlog is a personal web application that helps users organize and
-            visualize their own Google Maps records. Optional Google Drive integration
-            uses the drive.file scope only to save and restore the backup file created
-            by Spotlog. Spotlog does not request access to the user's entire Google Drive.
+          <p class="hero-en" lang="en">
+            Spotlog is a personal app for organizing your own Google Maps records.
+            Optional Google Drive integration uses the drive.file scope only for Spotlog's own backup file.
           </p>
+          <p class="hero-privacy-link"><a href="privacy.html">プライバシーポリシー</a></p>
+        </div>
 
-          <p class="app-about-links">
-            <a href="privacy.html">プライバシーポリシー</a>・<a href="terms.html">利用規約</a>・<a href="help.html">使い方ガイド</a>・<a href="mailto:numacchi14@gmail.com">お問い合わせ</a>
-          </p>
+        <div class="hero-actions">
+          <div class="drive-sync" id="drive-sync">
+            <button class="btn" id="btn-drive-connect" type="button">
+              <i data-lucide="cloud"></i> Googleドライブと連携
+            </button>
+            <button class="btn btn-primary" id="btn-drive-save" type="button" style="display: none;">
+              <i data-lucide="cloud-upload"></i> Driveに保存
+            </button>
+            <span class="unsaved-indicator" id="unsaved-indicator" style="display: none;" title="Driveに保存またはJSONエクスポートするまで、この変更は他の端末からは見えません">
+              <i data-lucide="circle-dot" style="width:10px;height:10px;"></i> 未保存の変更があります
+            </span>
+            <span class="drive-sync-status" id="drive-sync-status"></span>
+
+            <label class="local-cache-toggle-wrap" for="local-cache-toggle" title="このデバイスにデータをキャッシュし、オフラインでも直近のデータを見られるようにします。共有PCではOFFにしてください。">
+              <span class="local-cache-toggle-switch">
+                <input type="checkbox" id="local-cache-toggle" checked>
+                <span class="local-cache-toggle-slider"></span>
+              </span>
+              <span class="local-cache-toggle-label">このデバイスにデータを保存</span>
+            </label>
+            <span class="drive-sync-status" id="local-cache-status"></span>
+          </div>
         </div>
       </div>
-      <div class="drive-sync" id="drive-sync">
-        <button class="btn" id="btn-drive-connect" type="button">
-          <i data-lucide="cloud"></i> Googleドライブと連携
-        </button>
-        <button class="btn btn-primary" id="btn-drive-save" type="button" style="display: none;">
-          <i data-lucide="cloud-upload"></i> Driveに保存
-        </button>
-        <span class="unsaved-indicator" id="unsaved-indicator" style="display: none;" title="Driveに保存またはJSONエクスポートするまで、この変更は他の端末からは見えません">
-          <i data-lucide="circle-dot" style="width:10px;height:10px;"></i> 未保存の変更があります
-        </span>
-        <span class="drive-sync-status" id="drive-sync-status"></span>
+    </header>
 
-        <label class="local-cache-toggle-wrap" for="local-cache-toggle" title="このデバイスにデータをキャッシュし、オフラインでも直近のデータを見られるようにします。共有PCではOFFにしてください。">
-          <span class="local-cache-toggle-switch">
-            <input type="checkbox" id="local-cache-toggle" checked>
-            <span class="local-cache-toggle-slider"></span>
-          </span>
-          <span class="local-cache-toggle-label">このデバイスにデータを保存</span>
-        </label>
-        <span class="drive-sync-status" id="local-cache-status"></span>
-      </div>
-      <div class="action-buttons" id="header-actions" style="display: none;">
+    <div class="action-buttons" id="header-actions" style="display: none;">
         <button class="btn" id="btn-add-files" type="button">
           <i data-lucide="upload"></i> ファイルを追加読み込み
         </button>
@@ -131,8 +114,7 @@
         <button class="btn btn-danger" id="btn-reset" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: #ef4444;">
           <i data-lucide="trash-2"></i> リセット
         </button>
-      </div>
-    </header>
+    </div>
 
     <!-- Upload Area -->
     <div id="upload-section">
@@ -169,6 +151,45 @@
         </div>
       </div>
     </div>
+
+    <!-- 詳しい説明（OAuth審査用の要約カードから移動した内容。操作エリアより下に配置し、
+         要約カード側をコンパクトに保つ。表示はdisplay:none/タブ/モーダル/閉じたdetailsに
+         隠さず、常に開いた通常のセクションとして表示する） -->
+    <section class="app-details">
+      <h2>Spotlogについて（詳しい説明）</h2>
+      <p>
+        NUM-ISH運営者の菱沼政彦が個人で開発・運営しています。
+        通常のデータ処理は利用者のブラウザ内で行われ、運営者が管理するサーバーへ送信されることはありません。
+        利用者がGoogle Drive連携を選択した場合に限り、バックアップデータは利用者のブラウザからGoogle Driveへ直接送信されます。
+      </p>
+      <p>
+        主な機能：Google Takeoutから書き出した利用者自身のデータの読み込み／保存した場所やクチコミの検索・分類／地図やグラフによる可視化／ローカルデータの編集・バックアップ／任意のGoogleドライブ連携。
+        Googleマップに蓄積した自分自身の記録を整理し、場所・クチコミ・評価・行動の傾向などを振り返りたい方を対象としています。
+      </p>
+
+      <h2>Googleドライブ連携について（詳しい説明）</h2>
+      <ul>
+        <li>Googleドライブ連携は任意</li>
+        <li>使用する権限は<code>drive.file</code>のみ</li>
+        <li>Spotlogが作成するバックアップファイルを、利用者自身のGoogleドライブへ保存・読み込みするためだけに使用</li>
+        <li>Google Drive全体へのアクセス権は要求しない</li>
+        <li>氏名、メールアドレス、プロフィール情報は取得しない</li>
+        <li>広告利用、データ販売、目的外の第三者提供は行わない</li>
+      </ul>
+      <p>Spotlogは、Google LLCまたはGoogleの関連会社が提供・運営するサービスではありません。</p>
+
+      <h2 lang="en">About Spotlog and Google Drive Integration</h2>
+      <p lang="en">
+        Spotlog is a personal web application that helps users organize and
+        visualize their own Google Maps records. Optional Google Drive integration
+        uses the drive.file scope only to save and restore the backup file created
+        by Spotlog. Spotlog does not request access to the user's entire Google Drive.
+      </p>
+
+      <p class="app-about-links">
+        <a href="privacy.html">プライバシーポリシー</a>・<a href="terms.html">利用規約</a>・<a href="help.html">使い方ガイド</a>・<a href="mailto:numacchi14@gmail.com">お問い合わせ</a>
+      </p>
+    </section>
 
     <!-- Dashboard Content (hidden initially) -->
     <div class="dashboard-grid" id="dashboard-section">

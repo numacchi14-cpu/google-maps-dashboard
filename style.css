@@ -210,42 +210,94 @@ header {
   padding-bottom: 1.5rem;
 }
 
-.header-title-container {
-  flex: 1 1 auto;
-  min-width: 280px;
+/* Hero row: OAuth審査用の要約カード（.hero-card）と操作（.hero-actions、Drive連携ボタン）を
+   デスクトップでは横並び、モバイルでは縦並び（要約→操作の順）にする。flex-wrapと
+   min-widthによる自然な折り返しに加え、768px以下では明示的に縦並びを強制する（下記参照）。 */
+.hero-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 2rem;
+  width: 100%;
 }
 
-.header-title-container h1 {
+.hero-card {
+  flex: 1 1 320px;
+  min-width: 280px;
+  max-width: 480px;
+}
+
+.hero-card h1 {
   font-size: 2.25rem;
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.5rem;
   background: var(--accent-gradient);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   display: inline-block;
 }
 
-.header-title-container p {
+.hero-lead {
   color: var(--text-secondary);
   font-size: 0.95rem;
+  margin-bottom: 0.75rem;
 }
 
-.app-about {
-  margin-top: 0.6rem;
+.hero-drive-facts {
+  font-size: 0.82rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+  margin: 0 0 0.6rem 1.1rem;
+  padding: 0;
+}
+
+.hero-drive-facts code {
+  background: var(--bg-tertiary);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.85em;
+}
+
+.hero-en {
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  margin-bottom: 0.6rem;
+}
+
+.hero-privacy-link {
+  font-size: 0.85rem;
+}
+
+.hero-privacy-link a {
+  color: var(--accent-primary);
+}
+
+.hero-actions {
+  flex: 1 1 280px;
+  min-width: 260px;
+}
+
+/* 詳しい説明（.app-details）: 操作エリアより下に置く、要約カードから移した内容。
+   display:none/タブ/モーダル/閉じたdetailsには入れず、通常表示のセクションのまま。 */
+.app-details {
   max-width: 720px;
+  margin: 2rem auto 0;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border-color);
 }
 
-.app-about p {
+.app-details p {
   font-size: 0.82rem !important;
   line-height: 1.6;
   color: var(--text-muted) !important;
   margin-bottom: 0.5rem;
 }
 
-.app-about p:last-child {
+.app-details p:last-child {
   margin-bottom: 0;
 }
 
-.app-about h2 {
+.app-details h2 {
   font-size: 0.78rem;
   font-weight: 600;
   color: var(--text-secondary);
@@ -254,11 +306,11 @@ header {
   margin: 0.9rem 0 0.35rem;
 }
 
-.app-about h2:first-child {
+.app-details h2:first-child {
   margin-top: 0;
 }
 
-.app-about ul {
+.app-details ul {
   font-size: 0.82rem;
   line-height: 1.6;
   color: var(--text-muted);
@@ -270,14 +322,14 @@ header {
   font-size: 0.8rem !important;
 }
 
-.app-about code {
+.app-details code {
   background: var(--bg-tertiary);
   padding: 0.1rem 0.35rem;
   border-radius: 4px;
   font-size: 0.85em;
 }
 
-.app-about a {
+.app-details a {
   color: var(--accent-primary);
 }
 
@@ -1678,6 +1730,10 @@ tr:hover td {
     flex-direction: column;
     align-items: flex-start;
     gap: 1rem;
+  }
+
+  .hero-row {
+    flex-direction: column;
   }
 
   /* Places table -> stacked cards. 8 columns don't fit a phone screen,
