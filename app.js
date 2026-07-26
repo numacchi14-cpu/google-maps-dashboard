@@ -12,7 +12,11 @@ let categoryChart = null;
 let prefectureChart = null;
 // デフォルトは最終更新日の新しい順（自分の直近の編集・取り込みがすぐ確認できるように、
 // 2026-07-26変更。従来はスポット名の昇順だった）。
-let currentSortColumn = 'updateTime';
+// 「最終更新日」は内部的にはpublishTimeフィールド（Google Takeoutは真の初回投稿日を
+// 出力せず、この日付が編集のたびに更新されて返ってくるため）。updateTimeフィールドは
+// 実データではほぼ空で信頼できないため使わない（2026-07-26、ユーザーからの指摘で判明。
+// 詳細はSPEC.md参照。一度updateTime寄りに直したが、これは誤りだったため巻き戻した）。
+let currentSortColumn = 'publishTime';
 let currentSortDirection = 'desc';
 // カテゴリー比率チャートの集計軸: 'google'（Google連動カテゴリー、生ラベルそのまま）
 // または 'my'（マイカテゴリー。未設定はGoogle連動にフォールバック＝従来の実効値）
@@ -1661,8 +1665,13 @@ function parseAppCSVBackup(rows) {
   const addressIdx = headers.findIndex(h => /^住所$/.test(h.trim()));
   const ratingIdx = headers.findIndex(h => /^評価$/.test(h.trim()));
   const commentIdx = headers.findIndex(h => /^レビュー・メモ$/.test(h.trim()));
-  const publishIdx = headers.findIndex(h => /^初投稿日$/.test(h.trim()));
+  // 2026-07-26まではこのCSVに「初投稿日」（実データ上の意味ある日付）と「最終更新日」
+  // （実データではほぼ空。詳細はSPEC.md参照）の2列があったが、「最終更新日」1列に統合した。
+  // 旧フォーマットのCSVを読み込んだ場合は「初投稿日」列を優先し、新フォーマットのCSVでは
+  // 「最終更新日」列を読む。
+  const legacyPublishIdx = headers.findIndex(h => /^初投稿日$/.test(h.trim()));
   const updateIdx = headers.findIndex(h => /^最終更新日$/.test(h.trim()));
+  const publishIdx = legacyPublishIdx !== -1 ? legacyPublishIdx : updateIdx;
   const latIdx = headers.findIndex(h => /^緯度$/.test(h.trim()));
   const lngIdx = headers.findIndex(h => /^経度$/.test(h.trim()));
   const urlIdx = headers.findIndex(h => /^Googleマップリンク$/.test(h.trim()));
@@ -1982,18 +1991,22 @@ function deduplicatePlaces(list) {
       uniqueByKey.set(key, item);
     } else {
       // Googleマップ側でレビュー本文・評価が編集されると、Takeoutの再エクスポートで
-      // 最終更新日（updateTime）が新しくなって返ってくる。手動入力レコード以外は、
-      // 取り込みデータの方が新しければGoogle由来フィールドを追従上書きする。
-      // 手動入力（source: "手動入力"）はユーザーが直接編集したデータなので対象外。
-      const incomingIsNewer = existing.source !== "手動入力" && item.updateTime &&
-        (!existing.updateTime || normalizeDateForCompare(item.updateTime) > normalizeDateForCompare(existing.updateTime));
+      // 最終更新日が新しくなって返ってくる。手動入力レコード以外は、取り込みデータの
+      // 方が新しければGoogle由来フィールドを追従上書きする。手動入力（source: "手動入力"）
+      // はユーザーが直接編集したデータなので対象外。
+      // （2026-07-26修正：以前はupdateTimeフィールドで新旧判定していたが、Google Takeoutは
+      // 真の初回投稿日を出力せずpublishTimeが編集のたびに更新される一方、updateTimeに
+      // 対応する実データはほぼ常に空だったため、この判定は実運用でまともに機能していな
+      // かった。publishTimeベースの判定に切り替えた。詳細は4節）
+      const incomingIsNewer = existing.source !== "手動入力" && item.publishTime &&
+        (!existing.publishTime || normalizeDateForCompare(item.publishTime) > normalizeDateForCompare(existing.publishTime));
 
       if (incomingIsNewer) {
         if (item.comment) existing.comment = item.comment;
         if (item.rating) existing.rating = item.rating;
         if (item.address) existing.address = item.address;
         if (item.prefecture) existing.prefecture = item.prefecture;
-        existing.updateTime = item.updateTime;
+        existing.publishTime = item.publishTime;
         if (item.googleCategoryRaw) {
           existing.googleCategoryRaw = item.googleCategoryRaw;
           existing.category = getOrCreateGeminiCategory(item.googleCategoryRaw);
@@ -2712,7 +2725,7 @@ function renderUnknownSpotList(spots) {
     const metaParts = [
       spot.prefecture || "都道府県不明",
       spot.rating ? `★${spot.rating}` : "評価なし",
-      spot.updateTime || spot.publishTime || "日付不明",
+      spot.publishTime || "日付不明",
       spot.source || ""
     ].filter(Boolean);
     metaEl.textContent = metaParts.join(" / ");
@@ -2851,9 +2864,10 @@ function filterAndRender() {
     const matchCatGoogle = !catGoogleVal || p.category === catGoogleVal;
     const matchCatMy = !catMyVal || (catMyVal === "__unset__" ? !p.myCategory : p.myCategory === catMyVal);
     const matchRating = !minRating || (p.rating && p.rating >= minRating);
-    // 「最終更新日で絞り込み」なので updateTime を見る（2026-07-26修正：以前は列表示・
-    // ソートと同じくpublishTime＝初回投稿日を見ており、ラベルと実際の挙動がズレていた）。
-    const matchDate = matchesDateRange(p.updateTime, dateFrom, dateTo);
+    // 「最終更新日」列・ソートと同じくpublishTimeを見る（Google Takeoutは真の初回投稿日を
+    // 出力せず、この日付が編集のたびに更新されて返ってくるため。2026-07-26に一度updateTime
+    // 側に直したが、実データではupdateTimeがほぼ空で誤りだったため巻き戻した。詳細はSPEC.md）。
+    const matchDate = matchesDateRange(p.publishTime, dateFrom, dateTo);
     return matchSearch && matchPref && matchCatGoogle && matchCatMy && matchRating && matchDate;
   });
 
@@ -3145,11 +3159,13 @@ function renderTable(filteredList) {
     commentTd.setAttribute("data-label", "レビュー・メモ");
     commentTd.innerHTML = p.comment ? `<div class="cell-scrollable" title="${p.comment}">${p.comment}</div>` : `<div class="cell-scrollable">-</div>`;
 
-    // Update Date Column
+    // Update Date Column（内部的にはpublishTimeフィールド。Google Takeoutは真の初回
+    // 投稿日を出力せず、この日付が編集のたびに更新されて返ってくるため「最終更新日」として
+    // 扱う。updateTimeフィールドは実データではほぼ空で信頼できない。詳細はSPEC.md参照）
     const updTd = document.createElement("td");
     updTd.className = "col-upd-date";
     updTd.setAttribute("data-label", "最終更新日");
-    updTd.textContent = p.updateTime || "-";
+    updTd.textContent = p.publishTime || "-";
 
     // Actions Column (Delete, Center Map, Edit for manual entries)
     const actTd = document.createElement("td");
@@ -3409,20 +3425,26 @@ function exportCSV() {
 
   const csvRows = [];
   // Headers
-  csvRows.push(["スポット名", "都道府県", "マイ都道府県", "カテゴリー", "マイカテゴリー", "住所", "評価", "レビュー・メモ", "初投稿日", "最終更新日", "緯度", "経度", "Googleマップリンク", "データソース"].join(","));
+  // マイ都道府県は列としては出力しない（2026-07-26、実質未使用のため。フィールド自体は
+  // データモデル・UI・JSONバックアップにはそのまま残し、将来別の用途に転用できるようにする。
+  // 詳細はSPEC.md参照）。CSV再取り込み側（parseAppCSVBackup）はこの列が無くても
+  // csvFieldが安全に""を返すため、対応不要
+  csvRows.push(["スポット名", "都道府県", "カテゴリー", "マイカテゴリー", "住所", "評価", "レビュー・メモ", "最終更新日", "緯度", "経度", "Googleマップリンク", "データソース"].join(","));
 
   places.forEach(p => {
     const row = [
       escapeCSVValue(p.name),
       escapeCSVValue(p.prefecture),
-      escapeCSVValue(p.myPrefecture || ""),
       escapeCSVValue(getAllCategories()[p.category]?.name || "その他"),
       escapeCSVValue(p.myCategory ? (getAllCategories()[p.myCategory]?.name || "") : ""),
       escapeCSVValue(p.address),
       escapeCSVValue(p.rating ? p.rating.toString() : ""),
       escapeCSVValue(p.comment),
+      // Google Takeoutは真の初回投稿日を出力せず、この日付フィールド（内部的には
+      // 引き続きpublishTimeという名前だが、実質「最終更新日」）が編集のたびに
+      // 更新されて返ってくる。updateTimeフィールドは実データではほぼ空のため
+      // CSVには出力しない（2026-07-26、ユーザーからの指摘で判明。詳細はSPEC.md参照）。
       escapeCSVValue(p.publishTime || ""),
-      escapeCSVValue(p.updateTime || ""),
       escapeCSVValue(p.lat ? p.lat.toString() : ""),
       escapeCSVValue(p.lng ? p.lng.toString() : ""),
       escapeCSVValue(p.url),

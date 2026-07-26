@@ -42,31 +42,20 @@ self.addEventListener("fetch", (event) => {
     return; // cross-origin (CDN) and non-GET requests: let the browser handle them untouched
   }
 
-  if (req.mode === "navigate") {
-    // Network-first for page loads, so a normal reload always gets the latest
-    // deploy; only fall back to the cached shell when actually offline.
-    event.respondWith(
-      fetch(req)
-        .then((res) => {
-          const clone = res.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put("/index.html", clone));
-          return res;
-        })
-        .catch(() => caches.match("/index.html"))
-    );
-    return;
-  }
-
-  // Static shell assets: cache-first (fast repeat loads), falling back to network
-  // and quietly re-caching whatever comes back.
+  // Network-first for every same-origin shell file (not just navigation) — this
+  // app has no build step that hashes filenames on deploy, so a cache-first
+  // strategy on app.js/style.css would keep serving yesterday's code to a
+  // returning visitor until CACHE_NAME is manually bumped. Network-first means
+  // an online visitor always gets whatever was just deployed; the cache only
+  // kicks in as a fallback when there's genuinely no connection.
+  const cacheKey = req.mode === "navigate" ? "/index.html" : req;
   event.respondWith(
-    caches.match(req).then((cached) => {
-      if (cached) return cached;
-      return fetch(req).then((res) => {
+    fetch(req)
+      .then((res) => {
         const clone = res.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(req, clone));
+        caches.open(CACHE_NAME).then((cache) => cache.put(cacheKey, clone));
         return res;
-      });
-    })
+      })
+      .catch(() => caches.match(cacheKey))
   );
 });

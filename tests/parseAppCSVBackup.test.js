@@ -5,7 +5,12 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { parseCSVRows, isAppCSVBackup, parseAppCSVBackup, summarizeUnresolvedMyCategoryNames } = require("../app.js");
 
+// 2026-07-26より前の全件CSVエクスポートは「初投稿日」「最終更新日」の2列だった
+// （旧フォーマット。当時のCSVを読み込んでも壊れないことの確認用に残す）。
 const HEADER = "スポット名,都道府県,マイ都道府県,カテゴリー,マイカテゴリー,住所,評価,レビュー・メモ,初投稿日,最終更新日,緯度,経度,Googleマップリンク,データソース";
+// 現行フォーマット：Google Takeoutが真の初回投稿日を出力しないと判明したため
+// 「最終更新日」1列に統合した（中身は内部的にはpublishTimeフィールド）。
+const NEW_HEADER = "スポット名,都道府県,マイ都道府県,カテゴリー,マイカテゴリー,住所,評価,レビュー・メモ,最終更新日,緯度,経度,Googleマップリンク,データソース";
 
 test("データソース列がある＝このアプリ自身のCSVフルエクスポートとして検出する", () => {
   const rows = parseCSVRows(HEADER + "\nテスト,東京都,,観光・レジャー,,東京都渋谷区,4,コメント,2024/01/01,2024/01/01,35.6,139.7,https://maps.example,手動入力");
@@ -38,6 +43,12 @@ test("月日がゼロ埋めされていない日付（Excel編集等で崩れた
   const parsed = parseAppCSVBackup(rows);
   assert.equal(parsed[0].publishTime, "2021/01/05");
   assert.equal(parsed[0].updateTime, "2021/01/05");
+});
+
+test("現行フォーマット（「最終更新日」1列のみ）のCSVも読み込め、publishTimeに反映される（回帰: Google Takeoutが真の初回投稿日を出力しないと判明し2列→1列に統合した際の互換性確認）", () => {
+  const rows = parseCSVRows(NEW_HEADER + "\n手動追加スポット,東京都,,その他,,東京都渋谷区,,,2024/03/10,,,,手動入力");
+  const parsed = parseAppCSVBackup(rows);
+  assert.equal(parsed[0].publishTime, "2024/03/10");
 });
 
 test("データソース列が空のレコードは既定でCSVインポート扱いにする", () => {

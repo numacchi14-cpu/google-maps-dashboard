@@ -27,13 +27,13 @@ function basePlace(overrides) {
   };
 }
 
-test("更新日が新しい再取り込みは、レビュー本文・評価・住所・更新日を追従上書きする", () => {
+test("最終更新日（publishTimeフィールド）が新しい再取り込みは、レビュー本文・評価・住所・最終更新日を追従上書きする（2026-07-26: updateTimeベースからpublishTimeベースの判定に変更。Google Takeoutは真の初回投稿日を出力せずpublishTimeが編集のたびに更新されるため）", () => {
   const existing = basePlace({});
   const incoming = basePlace({
     comment: "リニューアルして更に美味しくなった",
     rating: 5,
     address: "東京都渋谷区1-1-2",
-    updateTime: "2026/06/01"
+    publishTime: "2026/06/01"
   });
 
   const result = deduplicatePlaces([existing, incoming]);
@@ -42,30 +42,30 @@ test("更新日が新しい再取り込みは、レビュー本文・評価・�
   assert.equal(result[0].comment, "リニューアルして更に美味しくなった");
   assert.equal(result[0].rating, 5);
   assert.equal(result[0].address, "東京都渋谷区1-1-2");
-  assert.equal(result[0].updateTime, "2026/06/01");
+  assert.equal(result[0].publishTime, "2026/06/01");
 });
 
-test("更新日が同じか古い再取り込みは、既存の値を上書きしない（空欄埋めのみ）", () => {
+test("最終更新日（publishTime）が同じか古い再取り込みは、既存の値を上書きしない（空欄埋めのみ）", () => {
   const existing = basePlace({});
   const incoming = basePlace({
     comment: "古い評判",
     rating: 1,
-    updateTime: "2025/12/01"
+    publishTime: "2025/12/01"
   });
 
   const result = deduplicatePlaces([existing, incoming]);
 
   assert.equal(result[0].comment, "美味しかった");
   assert.equal(result[0].rating, 4);
-  assert.equal(result[0].updateTime, "2026/01/01");
+  assert.equal(result[0].publishTime, "2026/01/01");
 });
 
-test("手動入力レコードは、更新日が新しい取り込みがあっても上書きされない", () => {
+test("手動入力レコードは、最終更新日（publishTime）が新しい取り込みがあっても上書きされない", () => {
   const existing = basePlace({ source: "手動入力", comment: "自分の感想", rating: 3 });
   const incoming = basePlace({
     comment: "Googleのクチコミ",
     rating: 5,
-    updateTime: "2026/06/01"
+    publishTime: "2026/06/01"
   });
 
   const result = deduplicatePlaces([existing, incoming]);
@@ -98,12 +98,12 @@ test("手動入力レコードでも、初投稿日・最終更新日が未設�
   assert.equal(result[0].updateTime, "2026/03/01");
 });
 
-test("マイ都道府県・マイカテゴリーは、更新日に関わらずユーザー設定済みなら保護される", () => {
+test("マイ都道府県・マイカテゴリーは、最終更新日（publishTime）に関わらずユーザー設定済みなら保護される", () => {
   const existing = basePlace({ myPrefecture: "大阪府", myCategory: "よく行く店" });
   const incoming = basePlace({
     myPrefecture: "京都府",
     myCategory: "ラーメン店",
-    updateTime: "2026/06/01"
+    publishTime: "2026/06/01"
   });
 
   const result = deduplicatePlaces([existing, incoming]);
@@ -117,7 +117,7 @@ test("マイ都道府県・マイカテゴリーが未設定の場合は、取�
   const incoming = basePlace({
     myPrefecture: "京都府",
     myCategory: "ラーメン店",
-    updateTime: "2025/12/01"
+    publishTime: "2025/12/01"
   });
 
   const result = deduplicatePlaces([existing, incoming]);
