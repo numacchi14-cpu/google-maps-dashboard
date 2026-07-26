@@ -4,7 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Spotlog | Googleマップの保存済み・クチコミデータ可視化ツール</title>
-  
+  <meta name="application-name" content="Spotlog">
+  <meta name="description" content="Spotlogは、Google TakeoutでダウンロードしたGoogleマップの「保存済みの場所」「クチコミ」データを取り込み、都道府県別・カテゴリー別に一覧・地図・グラフで可視化する無料の個人向けツールです。データ処理はすべてブラウザ内で完結します。">
+  <meta property="og:site_name" content="Spotlog">
+  <meta property="og:title" content="Spotlog">
+  <meta property="og:description" content="Googleマップの「保存済みの場所」「クチコミ」データを取り込み、都道府県別・カテゴリー別に可視化する無料ツール">
+
   <!-- Leaflet CSS for Map -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
@@ -23,6 +28,11 @@
       <div class="header-title-container">
         <h1><span class="gradient-text">Spotlog</span></h1>
         <p>Googleマップの「保存済みの場所」「クチコミ」データを読み込み、県別・業種別にビジュアライズします</p>
+        <p class="app-about">
+          Spotlogは、Google Takeoutでダウンロードした Google マップの「保存済みの場所」「クチコミ（レビュー）」データを取り込み、都道府県別・カテゴリー別に一覧・地図・グラフで可視化する無料の個人向けツールです。
+          データの処理はすべてお使いのブラウザ内だけで完結し、外部のサーバーに送信されることはありません。
+          任意で使えるGoogleドライブ連携機能では、<code>drive.file</code>スコープ（このアプリが作成したファイルにのみアクセス可能な限定的な権限）を使い、このアプリが作成したバックアップファイル1つだけをご自身のGoogleドライブに保存・読み込みします。詳しくは<a href="privacy.html">プライバシーポリシー</a>をご覧ください。
+        </p>
       </div>
       <div class="drive-sync" id="drive-sync">
         <button class="btn" id="btn-drive-connect" type="button">

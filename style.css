@@ -225,6 +225,25 @@ header {
   font-size: 0.95rem;
 }
 
+.app-about {
+  margin-top: 0.6rem;
+  max-width: 720px;
+  font-size: 0.82rem !important;
+  line-height: 1.6;
+  color: var(--text-muted) !important;
+}
+
+.app-about code {
+  background: var(--bg-tertiary);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.85em;
+}
+
+.app-about a {
+  color: var(--accent-primary);
+}
+
 /* Drop Zone / Upload Area */
 .upload-wrapper {
   display: flex;
