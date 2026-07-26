@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Spotlog | Googleマップの保存済み・クチコミデータ可視化ツール</title>
+  <title>Spotlog</title>
   <meta name="application-name" content="Spotlog">
   <meta name="description" content="Spotlogは、Google TakeoutでダウンロードしたGoogleマップの「保存済みの場所」「クチコミ」データを取り込み、都道府県別・カテゴリー別に一覧・地図・グラフで可視化する無料の個人向けツールです。データ処理はすべてブラウザ内で完結します。">
   <meta property="og:site_name" content="Spotlog">
@@ -35,11 +35,15 @@
   <div class="app-container">
     <header>
       <div class="header-title-container">
-        <h1><span class="gradient-text">Spotlog</span></h1>
+        <h1>Spotlog</h1>
         <p>Googleマップの「保存済みの場所」「クチコミ」データを読み込み、県別・業種別にビジュアライズします</p>
         <div class="app-about">
+          <h2>Spotlogについて</h2>
           <p>
-            Spotlogは、Googleマップに保存した場所や投稿したクチコミなど、利用者自身の記録を整理・可視化し、これまでの行動や体験を振り返るための個人向けWebアプリです。
+            Spotlogは、Googleマップに保存した場所や投稿したクチコミなど、利用者自身の記録を整理・検索・可視化し、
+            これまでの行動や体験を振り返るための個人向けWebアプリです。
+          </p>
+          <p>
             NUM-ISH運営者の菱沼政彦が個人で開発・運営しています。
             通常のデータ処理は利用者のブラウザ内で行われ、運営者が管理するサーバーへ送信されることはありません。利用者がGoogle Drive連携を選択した場合に限り、バックアップデータは利用者のブラウザからGoogle Driveへ直接送信されます。
           </p>
@@ -47,12 +51,26 @@
             主な機能：Google Takeoutから書き出した利用者自身のデータの読み込み／保存した場所やクチコミの検索・分類／地図やグラフによる可視化／ローカルデータの編集・バックアップ／任意のGoogleドライブ連携。
             Googleマップに蓄積した自分自身の記録を整理し、場所・クチコミ・評価・行動の傾向などを振り返りたい方を対象としています。
           </p>
-          <p>
-            Googleドライブ連携は任意の機能です。利用した場合、このアプリが作成したバックアップファイルをご自身のGoogleドライブへ保存・読み込みするためだけに、
-            <code>drive.file</code>スコープ（このアプリが作成したファイルにのみアクセス可能な限定的な権限）を使用します。氏名・メールアドレス・プロフィール情報は取得せず、
-            ドライブ全体へのアクセス権も要求しません。取得した情報の販売や、広告配信・パーソナライズ広告への利用も行いません。
-          </p>
+
+          <h2>Googleドライブ連携の目的</h2>
+          <ul>
+            <li>Googleドライブ連携は任意</li>
+            <li>使用する権限は<code>drive.file</code>のみ</li>
+            <li>Spotlogが作成するバックアップファイルを、利用者自身のGoogleドライブへ保存・読み込みするためだけに使用</li>
+            <li>Google Drive全体へのアクセス権は要求しない</li>
+            <li>氏名、メールアドレス、プロフィール情報は取得しない</li>
+            <li>広告利用、データ販売、目的外の第三者提供は行わない</li>
+          </ul>
           <p>Spotlogは、Google LLCまたはGoogleの関連会社が提供・運営するサービスではありません。</p>
+
+          <h2 lang="en">Purpose of Google Drive Integration</h2>
+          <p lang="en">
+            Spotlog is a personal web application that helps users organize and
+            visualize their own Google Maps records. Optional Google Drive integration
+            uses the drive.file scope only to save and restore the backup file created
+            by Spotlog. Spotlog does not request access to the user's entire Google Drive.
+          </p>
+
           <p class="app-about-links">
             <a href="privacy.html">プライバシーポリシー</a>・<a href="terms.html">利用規約</a>・<a href="help.html">使い方ガイド</a>・<a href="mailto:numacchi14@gmail.com">お問い合わせ</a>
           </p>
