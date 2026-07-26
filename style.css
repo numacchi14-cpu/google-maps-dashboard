@@ -216,15 +216,25 @@ header {
 .hero-row {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: stretch;
   gap: 2rem;
   width: 100%;
 }
 
+/* 要約カードと操作カードを同じ「カード」の見た目にし、両方が同じ高さまで
+   ストレッチするようにする（.hero-row の align-items: stretch）。操作側の
+   内容（Drive連携ボタン等）が少なくても、カードの枠自体がスカスカに
+   余白だけ残るのではなく、枠内で縦センタリングされて見えるようにする。 */
 .hero-card {
   flex: 1 1 320px;
   min-width: 280px;
   max-width: 480px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 1.5rem;
+  backdrop-filter: blur(12px);
+  box-shadow: var(--card-shadow);
 }
 
 .hero-card h1 {
@@ -275,6 +285,18 @@ header {
 .hero-actions {
   flex: 1 1 280px;
   min-width: 260px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 1.5rem;
+  backdrop-filter: blur(12px);
+  box-shadow: var(--card-shadow);
+  display: flex;
+  align-items: center;
+}
+
+.hero-actions .drive-sync {
+  width: 100%;
 }
 
 /* 詳しい説明（.app-details）: 操作エリアより下に置く、要約カードから移した内容。
@@ -611,8 +633,19 @@ header {
 
 .card-header {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
+  gap: 0.75rem;
+}
+
+/* スポット一覧カードの絞り込み行：タイトルと横並びだと、.filter-row自体は
+   折り返せても「スポット一覧」タイトルとの間で残り幅を取り合って中途半端に
+   折り返し、日付範囲などがカードの外にはみ出す不具合があった（特にスマホ）。
+   flex-basis:100%で強制的にタイトルの次の行から始まるようにし、絞り込み行は
+   常にカードの全幅を使えるようにする。 */
+.card-title + .filter-row {
+  flex: 1 1 100%;
 }
 
 .card-title {
@@ -765,6 +798,12 @@ header {
 
 .action-buttons a.btn {
   text-decoration: none;
+}
+
+/* モバイル専用の操作メニュー折りたたみ切替。デスクトップでは常時非表示のままにして、
+   従来通りツールバーをそのまま展開表示する（下の@mediaで表示・折りたたみを有効化）。 */
+.toolbar-toggle {
+  display: none;
 }
 
 /* Google Drive Sync */
@@ -1734,6 +1773,39 @@ tr:hover td {
 
   .hero-row {
     flex-direction: column;
+  }
+
+  /* 操作メニュー（ファイルを追加読み込み〜リセット）の折りたたみ。モバイルは
+     縦に長く伸びて一覧・地図までのスクロールが長くなるため、既定は折りたたみ
+     （#toolbar-buttons.collapsed）にしておき、タップで展開できるようにする。 */
+  .toolbar-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-weight: 500;
+    font-size: 0.875rem;
+    cursor: pointer;
+  }
+
+  .toolbar-toggle span {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  #toolbar-buttons {
+    margin-top: 0.75rem;
+  }
+
+  #toolbar-buttons.collapsed {
+    display: none;
   }
 
   /* Places table -> stacked cards. 8 columns don't fit a phone screen,

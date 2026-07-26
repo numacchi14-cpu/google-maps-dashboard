@@ -341,6 +341,18 @@ function setupEventListeners() {
   const btnAddFiles = document.getElementById("btn-add-files");
   btnAddFiles.addEventListener("click", () => fileInput.click());
 
+  // モバイル専用の操作メニュー折りたたみ（デスクトップでは.toolbar-toggle自体が
+  // 非表示なのでクリックされない。CSS側の@media (max-width: 768px)参照）
+  const toolbarToggle = document.getElementById("toolbar-toggle");
+  const toolbarButtons = document.getElementById("toolbar-buttons");
+  const toolbarToggleIcon = document.getElementById("toolbar-toggle-icon");
+  toolbarToggle.addEventListener("click", () => {
+    const collapsed = toolbarButtons.classList.toggle("collapsed");
+    toolbarToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    toolbarToggleIcon.setAttribute("data-lucide", collapsed ? "chevron-down" : "chevron-up");
+    lucide.createIcons();
+  });
+
   // Drag & drop
   dropZone.addEventListener("dragover", (e) => {
     e.preventDefault();
@@ -1195,7 +1207,7 @@ function showDashboard() {
     map.invalidateSize();
     fitMapToMarkers();
   }, 50);
-  document.getElementById("header-actions").style.display = "flex";
+  document.getElementById("header-actions").style.display = "block";
 }
 
 // Helper to read file as text
@@ -4160,7 +4172,7 @@ function loadSampleData() {
       map.invalidateSize();
       fitMapToMarkers();
     }, 50);
-    document.getElementById("header-actions").style.display = "flex";
+    document.getElementById("header-actions").style.display = "block";
 
     showLoading(false);
   }, 1000);
