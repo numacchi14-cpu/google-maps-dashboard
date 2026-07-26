@@ -216,6 +216,17 @@ document.addEventListener("DOMContentLoaded", () => {
     e.preventDefault();
     e.returnValue = "";
   });
+
+  // PWA installability (フェーズ4): registers the app-shell service worker so the
+  // app can be added to the home screen / launched in its own window without
+  // browser chrome. Leaflet/Chart.js/Lucide/フォント are still CDN-loaded at
+  // runtime and are not cached here, so this is not full offline support
+  // (see sw.js comment / SPEC.md §4 "外部CDN依存").
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/sw.js").catch((e) => {
+      console.warn("Service worker registration failed:", e);
+    });
+  }
 });
 
 // Initialize Leaflet Map

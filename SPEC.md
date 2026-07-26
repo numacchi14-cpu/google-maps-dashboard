@@ -133,8 +133,8 @@ Google Takeout でエクスポートした「保存済みの場所」「クチ�
 *（ここにやりたいことを追記していく欄）*
 
 ### アプリ化・アクセス性
-- [ ] Windows / スマホで「ブラウザを経由せず起動できる」形にしたい → PWA化を検討中（マニフェスト＋Service Worker追加、既存コードはほぼ無改修で可）
-- [ ] Googleアカウント連動などで、スマホでもPCでもアクセスできるようにしたい
+- [x] Windows / スマホで「ブラウザを経由せず起動できる」形にしたい（2026-07-26実装。フェーズ4、詳細は6節）→ マニフェスト＋Service Workerでホーム画面への追加・スタンドアロン起動に対応。フルオフライン対応（CDN依存の解消）は範囲外のまま残課題
+- [x] Googleアカウント連動などで、スマホでもPCでもアクセスできるようにしたい（実質達成済みとして2026-07-26にチェック）→ Googleドライブ連携（フェーズ2）でどの端末からでも同じデータにアクセスできる。項目追加時点ではDrive連携が未実装だったため`[ ]`のまま残っていたチェック漏れ
 
 **方針: 保存先はGoogleドライブにする**
 - 自前サーバー・DBを持たず、Drive REST APIをブラウザから直接呼ぶ形にすることで「バックエンドなし」の設計思想を維持できる
@@ -268,7 +268,7 @@ Google Takeout でエクスポートした「保存済みの場所」「クチ�
 | 1 | 認証・同期に依存しないロジック追加（マイカテゴリー/マイ都道府県の2軸分離、Geminiプロンプト機能、Takeoutボタン、クチコミ→Googleマップ遷移、リセット前バックアップ、クチコミ手動追加・編集、日付範囲フィルター、分類ロジックのテスト、モバイル一覧のカード化） | Takeoutボタン／クチコミ地図遷移／リセット前バックアップ（＋復元バグ修正）／分類テスト／モバイルカード化／マイカテゴリー・マイ都道府県2軸分離／クチコミ手動追加・編集（CSV一括編集込み）／日付範囲フィルター／Google連動カテゴリーのGeminiプロンプト方式取得（生ラベルそのまま使用に方式転換込み）／一覧のGoogle連動・マイカテゴリー2列表示／カテゴリー比率チャートの軸切り替え／都道府県自動判定の店名誤判定バグ修正は完了（2026-07-20〜21）。残: Google連動カテゴリーのGoogle Places API方式（bの代替案a、未着手・優先度低） |
 | 2 | Google Drive連携（OAuth、保存・読み込み） | 完了（2026-07-24）。本番URL（GitHub Pages）で連携→保存→別セッションでの連携→読み込みまで実機確認済み |
 | 3 | オフラインキャッシュ設計（IndexedDB、端末ごとのON/OFF設定） | 完了（2026-07-25）。Driveアクセストークンの永続化は見送り（詳細は2.5節） |
-| 4 | PWA本実装（マニフェスト＋Service Worker、オフライン対応込み） | 未着手 |
+| 4 | PWA本実装（マニフェスト＋Service Worker） | インストール可能化のみ完了（2026-07-26）。フルオフライン対応（CDN依存の解消）は未着手 |
 
 **Google Drive連携（フェーズ2）実装状況（2026-07-24）**
 - 準備完了：GitHub Pages有効化済み（公開URL: https://numacchi14-cpu.github.io/google-maps-dashboard/ 、200を確認済み）、Google Cloud ConsoleでOAuthクライアント作成済み（アプリ名は"Google"を含められないため「G-MAP DashBoard」で登録、テストユーザー・drive.fileスコープとも設定済み、承認済みJavaScript生成元に上記Pages URLを設定）
@@ -288,6 +288,14 @@ Google Takeout でエクスポートした「保存済みの場所」「クチ�
 - Driveアクセストークンの永続化は、このフェーズで検討した上で見送り（2.5節に理由を記載）。フェーズ3は「アプリデータのローカル継続」のみを実装し、「Drive連携状態の継続」は引き続き毎回「連携」ボタンを押す運用のまま
 - 動作確認：`node --check`・`npm test`（100件）はパス。IndexedDB/localStorage部分はブラウザAPI依存でNode側のユニットテストが難しいため（Drive連携自体も同様の理由でユニットテスト無し）、純粋ロジック部分（`shouldScheduleLocalCacheWrite`）のみ`tests/localCache.test.js`でカバーし、実際の永続化挙動（トグルON/OFF、リロード後の復元、リセット時のキャッシュ削除、IndexedDB不可環境でのフォールバック）はブラウザ実機での確認が必要
 - 残タスク：フェーズ4（PWA本実装）は未着手のまま
+
+**フェーズ4（PWA本実装）実装状況（2026-07-26）**
+- 目的を「ブラウザUI無しでホーム画面から起動できるインストール可能な体験」に絞り、フルオフライン対応（4節「外部CDN依存」の解消）は今回のスコープ外とした（Leaflet/Chart.js/Lucide/Googleフォントは引き続きCDN読み込みのため、地図・グラフ・アイコン表示にはネット接続が必要なまま）
+- `manifest.json`を新設（`name`/`short_name`はSpotlog、`display: standalone`、`background_color`/`theme_color`は`--bg-primary`と同じ`#0b0f19`、`start_url`/`scope`は`/`）。アイコンは`icons/icon-192.png`・`icons/icon-512.png`・`icons/icon-512-maskable.png`の3種（OAuthブランディング用に作った地図ピンのロゴをPillowスクリプトで複数サイズ・マスカブル対応版に書き出して流用。マスカブル版は角丸なし全面塗りつぶし＋ピンを安全領域に収まるよう縮小）
+- `index.html`に`<link rel="manifest">`・favicon・`apple-touch-icon`・`theme-color`等のPWA関連タグを追加
+- `sw.js`を新設。キャッシュ対象はアプリ本体のシェル（`index.html`/`app.js`/`style.css`/`manifest.json`/`privacy.html`/`help.html`/アイコン3種）のみで、CDNリソース（クロスオリジン）は一切インターセプトしない設計。ページ遷移（navigation）はネットワーク優先＋オフライン時のみキャッシュにフォールバック、静的アセットはキャッシュ優先＋無ければネットワークから取得してキャッシュに追加、という単純な2方式。`app.js`のDOMContentLoaded内で`navigator.serviceWorker.register("/sw.js")`を実行して登録
+- 動作確認：`node --check`・`npm test`（104件）はパス。ブラウザ実機で`manifest.json`の取得・3アイコンの200応答・Service Workerの`active`状態・シェルファイルのキャッシュ格納（`caches.open("spotlog-shell-v1")`で10ファイル確認）・コンソールエラー無し、を確認済み
+- 残タスク：フルオフライン対応（Leaflet/Chart.js/Lucide/フォントのローカル同梱）、Google Playストア配布（PWAのTWA化、任意・優先度低）
 
 ### 公開範囲拡大・収益化・配布形態（2026-07-24 優先順位合意）
 
