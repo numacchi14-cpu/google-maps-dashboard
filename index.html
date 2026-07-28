@@ -485,19 +485,19 @@
             <a class="btn" href="https://gemini.google.com/" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link"></i> Geminiを開く</a>
           </div>
         </div>
-        <textarea id="gemini-cat-prompt" class="search-input gemini-cat-textarea" readonly rows="8" title="Geminiに渡すプロンプト" placeholder="対象スポットがありません"></textarea>
+        <textarea id="gemini-cat-prompt" class="search-input gemini-cat-textarea gemini-cat-textarea-compact" readonly rows="4" title="Geminiに渡すプロンプト" placeholder="対象スポットがありません"></textarea>
       </div>
 
       <div class="gemini-cat-step">
         <div class="gemini-cat-step-header">
           <span>② Geminiの回答（JSON）を貼り付け</span>
         </div>
-        <textarea id="gemini-cat-response" class="search-input gemini-cat-textarea" rows="6" placeholder='[{"id": "...", "category": "ラーメン店"}, ...]'></textarea>
+        <textarea id="gemini-cat-response" class="search-input gemini-cat-textarea gemini-cat-textarea-compact" rows="3" placeholder='[{"id": "...", "category": "ラーメン店"}, ...]'></textarea>
       </div>
 
       <button class="btn btn-primary" id="btn-gemini-apply" type="button"><i data-lucide="check"></i> ③ 適用する</button>
 
-      <div id="gemini-cat-result-list" class="gemini-cat-result-list"></div>
+      <div id="gemini-cat-result-list" class="gemini-cat-result-list gemini-cat-result-list-large"></div>
     </div>
   </div>
 
@@ -571,14 +571,14 @@
             <a class="btn" href="https://gemini.google.com/" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link"></i> Geminiを開く</a>
           </div>
         </div>
-        <textarea id="place-lookup-prompt" class="search-input gemini-cat-textarea" readonly rows="8" title="Geminiに渡すプロンプト" placeholder="①でリストを入力してから生成してください"></textarea>
+        <textarea id="place-lookup-prompt" class="search-input gemini-cat-textarea gemini-cat-textarea-compact" readonly rows="4" title="Geminiに渡すプロンプト" placeholder="①でリストを入力してから生成してください"></textarea>
       </div>
 
       <div class="gemini-cat-step">
         <div class="gemini-cat-step-header">
           <span>③ Geminiの回答（JSON）を貼り付け</span>
         </div>
-        <textarea id="place-lookup-response" class="search-input gemini-cat-textarea" rows="6" placeholder='[{"id": "q1", "candidates": [{"name": "...", "address": "...", "lat": 35.6, "lng": 139.7, "category": "..."}]}]'></textarea>
+        <textarea id="place-lookup-response" class="search-input gemini-cat-textarea gemini-cat-textarea-compact" rows="3" placeholder='[{"id": "q1", "candidates": [{"name": "...", "address": "...", "lat": 35.6, "lng": 139.7, "category": "..."}]}]'></textarea>
       </div>
 
       <button class="btn btn-primary" id="btn-place-lookup-apply" type="button"><i data-lucide="check"></i> ④ 候補を表示する</button>
@@ -641,8 +641,9 @@
         </button>
       </div>
       <p class="modal-desc">
-        「リンク・緯度経度をGeminiで調べる」で反映した緯度経度のうち、住所から判定した都道府県と座標から判定した都道府県が食い違っていたスポットです。
-        地図や住所と照らし合わせて問題なければ「確認OK」を押してください（座標やスポット自体は変更されず、フラグだけが外れます）。
+        「リンク・緯度経度をGeminiで調べる」に関連して、手動での確認・操作が必要なスポットをまとめて表示します。
+        ①座標の食い違い：住所から判定した都道府県と座標から判定した都道府県が食い違っていたスポットです。地図や住所と照らし合わせて問題なければ「確認OK」を押してください（座標やスポット自体は変更されず、フラグだけが外れます）。
+        ②Geminiが見つけられなかったスポット：前回のバッチでGeminiが情報を返せなかったため、以後の自動バッチ対象から外れています。もう一度試したい場合は「もう一度調べる対象に含める」を押してください。
       </p>
       <div id="location-review-list" class="unknown-spot-list"></div>
     </div>

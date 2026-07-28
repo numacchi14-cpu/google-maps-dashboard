@@ -1631,13 +1631,14 @@ tr:hover td {
 
 /* Used where the textarea is only copied into/pasted from (a copy button
    handles reading the prompt, and the response is just pasted in) — shrink it
-   so the 適用結果 list below gets more of the modal's vertical space. */
+   so the 適用結果 list below gets more of the modal's vertical space
+   （2026-07-28、全3つのGemini連携モーダルに適用するようさらに縮小） */
 .gemini-cat-textarea-compact {
-  min-height: 60px;
+  min-height: 50px;
 }
 
 .gemini-cat-result-list {
-  max-height: 220px;
+  max-height: 320px;
   overflow-y: auto;
   background: rgba(0, 0, 0, 0.2);
   border: 1px solid var(--border-color);
@@ -1645,8 +1646,9 @@ tr:hover td {
   padding: 0.75rem 1rem;
 }
 
+/* 2026-07-28: プロンプト表示・貼り付け欄を縮めた分、適用結果欄をさらに拡大 */
 .gemini-cat-result-list-large {
-  max-height: 420px;
+  max-height: 560px;
 }
 
 .gemini-cat-result-list:empty {

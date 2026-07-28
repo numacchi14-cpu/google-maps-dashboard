@@ -22,6 +22,17 @@ test("getGeminiLocationIncompletePlaces: urlまたは緯度経度のどちらか
   assert.deepEqual(targets, ["p2", "p3", "p4"]);
 });
 
+test("getGeminiLocationIncompletePlaces: locationLookupSkippedが立っている行は対象から除外する（2026-07-28実装）", () => {
+  // Geminiが前回のバッチで何も見つけられなかったスポットが、除外されずに毎回の
+  // バッチへ出続けてしまっていた再出現バグの回帰確認。
+  places.length = 0;
+  places.push({ id: "p1", name: "見つからなかった店", url: "", lat: null, lng: null, locationLookupSkipped: true });
+  places.push({ id: "p2", name: "未処理の店", url: "", lat: null, lng: null, locationLookupSkipped: false });
+
+  const targets = getGeminiLocationIncompletePlaces().map(p => p.id);
+  assert.deepEqual(targets, ["p2"]);
+});
+
 test("buildGeminiLocationPrompt: 評価・コメントを含めず名前と住所のみを送る", () => {
   const batch = [{ id: "p1", name: "一蘭 天神店", address: "福岡県福岡市中央区天神1-1", comment: "最高", rating: 5 }];
   const prompt = buildGeminiLocationPrompt(batch);
@@ -186,6 +197,32 @@ test("applyGeminiLocationResults: 住所が既存に無く今回新しく分か�
   assert.equal(applied[0].coordsNeedsReview, true);
   assert.ok(applied[0].coordsReviewReason);
   assert.equal(places[0].locationNeedsReview, true);
+});
+
+test("applyGeminiLocationResults: url/住所/座標のいずれも反映できなかった場合はlocationLookupSkippedを立てる（2026-07-28実装）", () => {
+  // 何も立てないと、Geminiが見つけられなかったスポットが次回以降のバッチにも
+  // 毎回出続けてしまう（座標の食い違いと同種の再出現バグ）。
+  places.length = 0;
+  places.push({ id: "p1", name: "見つからない店", address: "", url: "", lat: null, lng: null });
+
+  const applied = applyGeminiLocationResults([{ id: "p1" }]);
+
+  assert.equal(applied[0].skipped, true);
+  assert.equal(applied[0].urlApplied, false);
+  assert.equal(applied[0].addressApplied, false);
+  assert.equal(applied[0].coordsApplied, false);
+  assert.equal(places[0].locationLookupSkipped, true);
+  assert.deepEqual(getGeminiLocationIncompletePlaces().map(p => p.id), []);
+});
+
+test("applyGeminiLocationResults: 何か1つでも反映できればlocationLookupSkippedは立てない", () => {
+  places.length = 0;
+  places.push({ id: "p1", name: "テスト", address: "", url: "", lat: null, lng: null });
+
+  const applied = applyGeminiLocationResults([{ id: "p1", url: "https://maps.example/1" }]);
+
+  assert.equal(applied[0].skipped, false);
+  assert.equal(places[0].locationLookupSkipped, undefined);
 });
 
 test("applyGeminiLocationResults: 一致するidがない場合はスキップし結果に含めない", () => {

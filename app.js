@@ -575,7 +575,7 @@ function setupEventListeners() {
         if (item.addressApplied) parts.push("住所を反映");
         if (item.coordsNeedsReview) parts.push(`緯度経度を反映（⚠️ 要確認: ${item.coordsReviewReason}）`);
         else if (item.coordsApplied) parts.push("緯度経度を反映");
-        if (parts.length === 0) parts.push("反映できる項目がありませんでした");
+        if (item.skipped) parts.push("Geminiでは見つけられませんでした（次回以降のバッチ対象から除外。「緯度経度 要確認」から再度含められます）");
         li.textContent = `${item.name}: ${parts.join(" / ")}`;
         ul.appendChild(li);
       });
@@ -1723,6 +1723,7 @@ function parseAppBackupJSON(json) {
       updateTime: item.updateTime || "",
       locationNeedsReview: item.locationNeedsReview || false,
       locationReviewReason: item.locationReviewReason || null,
+      locationLookupSkipped: item.locationLookupSkipped || false,
       wishlistListName: item.wishlistListName || null,
       wishlistMemo: item.wishlistMemo || null,
       wishlistTags: item.wishlistTags || null,
@@ -2568,9 +2569,13 @@ const GEMINI_LOCATION_BATCH_SIZE = 50;
 // 現在プロンプトに含まれているバッチ（"適用する"時にどのidが対象かの参照用）
 let geminiLocationBatch = [];
 
-// 差分方式の対象：Googleマップリンクまたは緯度経度のどちらかが未設定のスポットのみ
+// 差分方式の対象：Googleマップリンクまたは緯度経度のどちらかが未設定のスポットのみ。
+// ただしlocationLookupSkipped（Geminiが前回のバッチで何も答えられなかった）が
+// 立っている項目は除外する（2026-07-28実装。除外しないと、Geminiが分からないと
+// 答えたスポットが毎回のバッチに出続けてしまい、同じ場所を無駄に何度も問い合わせる
+// 羽目になっていた——座標の食い違いで同じ問題が起きていたのと同種のバグ）。
 function getGeminiLocationIncompletePlaces() {
-  return places.filter(p => !p.url || p.lat == null || p.lng == null);
+  return places.filter(p => !p.locationLookupSkipped && (!p.url || p.lat == null || p.lng == null));
 }
 
 function buildGeminiLocationPrompt(batchPlaces) {
@@ -2619,8 +2624,9 @@ function parseGeminiLocationResponse(text) {
 }
 
 // パース済みの結果をplacesへ反映する（空欄埋めのみ、既存値は上書きしない）。
-// 実際に処理した各件について { id, name, urlApplied, coordsApplied, coordsNeedsReview, coordsReviewReason }
-// を返す（呼び出し側がGeminiの回答内容そのものをUIへ表示できるように、件数だけでなく中身も渡す）。
+// 実際に処理した各件について { id, name, urlApplied, addressApplied, coordsApplied, coordsNeedsReview,
+// coordsReviewReason, skipped } を返す（呼び出し側がGeminiの回答内容そのものをUIへ表示できるように、
+// 件数だけでなく中身も渡す）。
 function applyGeminiLocationResults(results) {
   const applied = [];
   results.forEach(({ id, url, lat, lng, address }) => {
@@ -2667,7 +2673,15 @@ function applyGeminiLocationResults(results) {
       if (newPref !== "その他・海外") place.prefecture = newPref;
     }
 
-    applied.push({ id: place.id, name: place.name, urlApplied, addressApplied, coordsApplied, coordsNeedsReview, coordsReviewReason });
+    // Geminiがこの項目について何も返せなかった（url/住所/座標のいずれも反映できなかった）
+    // 場合、何もしなければgetGeminiLocationIncompletePlacesの対象に残り続け、次回以降の
+    // バッチにも毎回出てきてしまう（座標の食い違いで起きていたのと同種の再出現バグ、
+    // 2026-07-28修正）。「Geminiが見つけられなかった」フラグを立てて自動バッチから除外し、
+    // 「緯度経度 要確認」から手動でもう一度対象に含められるようにする。
+    const skipped = !urlApplied && !addressApplied && !coordsApplied;
+    if (skipped) place.locationLookupSkipped = true;
+
+    applied.push({ id: place.id, name: place.name, urlApplied, addressApplied, coordsApplied, coordsNeedsReview, coordsReviewReason, skipped });
   });
   return applied;
 }
@@ -2676,19 +2690,26 @@ function applyGeminiLocationResults(results) {
 function updateLocationReviewBadge() {
   const badge = document.getElementById("location-review-count");
   if (!badge) return;
-  const count = places.filter(p => p.locationNeedsReview).length;
+  // 座標の食い違いで要確認になったもの、Geminiが見つけられず自動バッチから除外された
+  // ものの両方を合わせて件数表示する（2026-07-28、後者を追加）。
+  const count = places.filter(p => p.locationNeedsReview || p.locationLookupSkipped).length;
   badge.textContent = count > 0 ? `(${count})` : "";
 }
 
 // 要確認フラグの立ったスポット一覧を、削除済みスポット（ゴミ箱）モーダルと同じ
-// カード形式で描画する。「確認OK」でフラグのみ外す（座標・スポット自体は変更しない）。
+// カード形式で描画する。2種類を扱う（2026-07-28、後者を追加）：
+// ① 座標の食い違い（locationNeedsReview）：「確認OK」でフラグのみ外す（座標は変更しない）
+// ② Geminiが見つけられず自動バッチから除外中（locationLookupSkipped）：
+//    「もう一度調べる対象に含める」でフラグを外し、次回のバッチに戻す
 function renderLocationReviewList() {
   const listEl = document.getElementById("location-review-list");
   if (!listEl) return;
   listEl.innerHTML = "";
 
-  const targets = places.filter(p => p.locationNeedsReview);
-  if (targets.length === 0) {
+  const reviewTargets = places.filter(p => p.locationNeedsReview);
+  const skippedTargets = places.filter(p => p.locationLookupSkipped);
+
+  if (reviewTargets.length === 0 && skippedTargets.length === 0) {
     const empty = document.createElement("p");
     empty.className = "unknown-spot-empty";
     empty.textContent = "要確認のスポットはありません。";
@@ -2696,37 +2717,79 @@ function renderLocationReviewList() {
     return;
   }
 
-  targets.forEach(spot => {
-    const item = document.createElement("div");
-    item.className = "unknown-spot-item deleted-spot-item";
+  if (reviewTargets.length > 0) {
+    const heading = document.createElement("p");
+    heading.className = "gemini-cat-result-heading";
+    heading.textContent = "座標の確認が必要";
+    listEl.appendChild(heading);
 
-    const info = document.createElement("div");
-    info.className = "unknown-spot-item-info";
-    const nameEl = document.createElement("strong");
-    nameEl.textContent = spot.name;
-    info.appendChild(nameEl);
-    const metaEl = document.createElement("span");
-    metaEl.textContent = [spot.address || "住所不明", spot.lat != null ? `${spot.lat}, ${spot.lng}` : "座標なし"].join(" / ");
-    info.appendChild(metaEl);
-    const reasonEl = document.createElement("span");
-    reasonEl.className = "place-lookup-candidate-warning";
-    reasonEl.textContent = `⚠️ ${spot.locationReviewReason || "座標が住所と食い違っている可能性があります"}`;
-    info.appendChild(reasonEl);
-    item.appendChild(info);
+    reviewTargets.forEach(spot => {
+      const item = document.createElement("div");
+      item.className = "unknown-spot-item deleted-spot-item";
 
-    const actions = document.createElement("div");
-    actions.className = "deleted-spot-item-actions";
+      const info = document.createElement("div");
+      info.className = "unknown-spot-item-info";
+      const nameEl = document.createElement("strong");
+      nameEl.textContent = spot.name;
+      info.appendChild(nameEl);
+      const metaEl = document.createElement("span");
+      metaEl.textContent = [spot.address || "住所不明", spot.lat != null ? `${spot.lat}, ${spot.lng}` : "座標なし"].join(" / ");
+      info.appendChild(metaEl);
+      const reasonEl = document.createElement("span");
+      reasonEl.className = "place-lookup-candidate-warning";
+      reasonEl.textContent = `⚠️ ${spot.locationReviewReason || "座標が住所と食い違っている可能性があります"}`;
+      info.appendChild(reasonEl);
+      item.appendChild(info);
 
-    const confirmBtn = document.createElement("button");
-    confirmBtn.className = "btn btn-primary";
-    confirmBtn.type = "button";
-    confirmBtn.textContent = "確認OK";
-    confirmBtn.addEventListener("click", () => confirmLocationReview(spot.id));
-    actions.appendChild(confirmBtn);
+      const actions = document.createElement("div");
+      actions.className = "deleted-spot-item-actions";
 
-    item.appendChild(actions);
-    listEl.appendChild(item);
-  });
+      const confirmBtn = document.createElement("button");
+      confirmBtn.className = "btn btn-primary";
+      confirmBtn.type = "button";
+      confirmBtn.textContent = "確認OK";
+      confirmBtn.addEventListener("click", () => confirmLocationReview(spot.id));
+      actions.appendChild(confirmBtn);
+
+      item.appendChild(actions);
+      listEl.appendChild(item);
+    });
+  }
+
+  if (skippedTargets.length > 0) {
+    const heading = document.createElement("p");
+    heading.className = "gemini-cat-result-heading";
+    heading.textContent = "Geminiが見つけられなかったスポット（自動バッチ対象から除外中）";
+    listEl.appendChild(heading);
+
+    skippedTargets.forEach(spot => {
+      const item = document.createElement("div");
+      item.className = "unknown-spot-item deleted-spot-item";
+
+      const info = document.createElement("div");
+      info.className = "unknown-spot-item-info";
+      const nameEl = document.createElement("strong");
+      nameEl.textContent = spot.name;
+      info.appendChild(nameEl);
+      const metaEl = document.createElement("span");
+      metaEl.textContent = spot.address || "住所不明";
+      info.appendChild(metaEl);
+      item.appendChild(info);
+
+      const actions = document.createElement("div");
+      actions.className = "deleted-spot-item-actions";
+
+      const retryBtn = document.createElement("button");
+      retryBtn.className = "btn btn-primary";
+      retryBtn.type = "button";
+      retryBtn.textContent = "もう一度調べる対象に含める";
+      retryBtn.addEventListener("click", () => retryLocationLookup(spot.id));
+      actions.appendChild(retryBtn);
+
+      item.appendChild(actions);
+      listEl.appendChild(item);
+    });
+  }
 }
 
 // 「確認OK」：座標・スポット自体は変更せず、要確認フラグのみ外す。
@@ -2735,6 +2798,18 @@ function confirmLocationReview(id) {
   if (!place) return;
   place.locationNeedsReview = false;
   place.locationReviewReason = null;
+  markUnsavedChanges();
+  scheduleLocalCacheWrite();
+  renderLocationReviewList();
+  updateLocationReviewBadge();
+}
+
+// 「もう一度調べる対象に含める」：除外フラグだけを外し、次回の
+// 「リンク・緯度経度をGeminiで調べる」バッチに再び対象として現れるようにする。
+function retryLocationLookup(id) {
+  const place = places.find(p => p.id === id);
+  if (!place) return;
+  place.locationLookupSkipped = false;
   markUnsavedChanges();
   scheduleLocalCacheWrite();
   renderLocationReviewList();
@@ -3871,6 +3946,9 @@ function buildBackupJSONPayload(list = places) {
     // Gemini由来フィールドと同様に非対応、4節参照）。
     locationNeedsReview: p.locationNeedsReview || false,
     locationReviewReason: p.locationReviewReason || null,
+    // Geminiが前回のバッチで何も見つけられず、自動バッチ対象から除外中というフラグ
+    // （2026-07-28実装）。立っていないと同じ場所を無駄に何度も問い合わせてしまうため。
+    locationLookupSkipped: p.locationLookupSkipped || false,
     // Googleマップのカスタムリスト（「行ってみたい」等）由来のフィールド。CSVフルエクスポート
     // には含めない（他のGemini由来フィールドと同じ「JSONのみロスレス」方針、4節参照）。
     wishlistListName: p.wishlistListName || null,
