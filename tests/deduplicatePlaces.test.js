@@ -216,6 +216,27 @@ test("逆順（クチコミが先、行ってみたいリストが後）でも�
   assert.equal(result[0].wishlistMemo, "友達がおすすめしてた");
 });
 
+test("既存の緯度経度が未設定で、CSV再取り込み等で緯度経度が新しく分かった場合は埋め合わせる（2026-07-28修正：この空欄埋めが未実装で、CSVフルエクスポートに緯度経度を手入力して再取り込みしても既存レコードとマージされる際に静かに失われていた不具合の回帰確認）", () => {
+  const existing = basePlace({ lat: null, lng: null });
+  const incoming = basePlace({ lat: 33.5902, lng: 130.4017 });
+
+  const result = deduplicatePlaces([existing, incoming]);
+
+  assert.equal(result.length, 1);
+  assert.equal(result[0].lat, 33.5902);
+  assert.equal(result[0].lng, 130.4017);
+});
+
+test("既存の緯度経度が既にある場合は、再取り込みで上書きしない（空欄埋めのみ）", () => {
+  const existing = basePlace({ lat: 35.1, lng: 139.1 });
+  const incoming = basePlace({ lat: 40, lng: 140, publishTime: "2026/06/01" });
+
+  const result = deduplicatePlaces([existing, incoming]);
+
+  assert.equal(result[0].lat, 35.1);
+  assert.equal(result[0].lng, 139.1);
+});
+
 test("URLが一致しない場合は別レコードとして扱う（重複排除しない）", () => {
   const a = basePlace({ url: "https://maps.google.com/?cid=1" });
   const b = basePlace({ id: "id2", url: "https://maps.google.com/?cid=2" });

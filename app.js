@@ -2194,6 +2194,16 @@ function deduplicatePlaces(list) {
       if (!existing.myPrefecture && item.myPrefecture) existing.myPrefecture = item.myPrefecture;
       if (!existing.myCategory && item.myCategory) existing.myCategory = item.myCategory;
 
+      // 緯度経度は「新しいから上書き」の対象にはせず（座標自体は時間とともに変わるもの
+      // ではないため）、常に「既存が未設定の場合のみ埋め合わせ」で反映する（2026-07-28
+      // 修正：この空欄埋めが一切実装されておらず、CSVフルエクスポートに緯度経度を
+      // 手入力して再取り込みしても、同じスポットが既にplacesにある場合はマージの際に
+      // 静かに失われていた不具合。ユーザー報告により発覚）。
+      if (existing.lat == null && existing.lng == null && item.lat != null && item.lng != null) {
+        existing.lat = item.lat;
+        existing.lng = item.lng;
+      }
+
       // 「行ってみたい」等のカスタムリスト由来フィールドも、新旧判定に関わらず
       // 常に「既存が空欄の場合のみ埋め合わせ」で保護する。行きたいリストで先に取り込んだ後
       // クチコミが後から来ても（あるいは逆順でも）、両方の情報が1レコードに統合される
