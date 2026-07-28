@@ -154,6 +154,17 @@
         </p>
         <button class="upload-btn" id="select-file-btn">ファイルを選択する</button>
 
+        <!-- 2026-07-28実装：Google Takeoutはエクスポート準備に数時間〜数日かかることが
+             あるため、待っている間に離脱されないよう「まずはサンプルデータで試す」導線を
+             ファーストビュー内・主要CTAのすぐ下という目立つ位置に配置（従来はヘルプ/
+             Takeoutリンクより下の地味なボタンだった）。 -->
+        <div class="sample-trigger-container">
+          <p class="sample-trigger-lead">Google Takeoutの準備には数時間〜数日かかることがあります。待っている間に、まずは操作感を試してみませんか？</p>
+          <button class="sample-btn" id="load-sample-btn">
+            <i data-lucide="play-circle"></i> サンプルデータで試してみる
+          </button>
+        </div>
+
         <div class="help-guide-container">
           <a href="help.html" class="help-guide-btn">
             <i data-lucide="book-open"></i> はじめての方はこちら：使い方ガイド
@@ -164,11 +175,6 @@
           <a href="https://takeout.google.com/settings/takeout" target="_blank" rel="noopener noreferrer" class="takeout-link-btn">
             <i data-lucide="external-link"></i> Google Takeoutでデータを取得する
           </a>
-        </div>
-
-        <div class="sample-trigger-container">
-          <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.5rem;">または、サンプルデータで試してみる：</p>
-          <button class="sample-btn" id="load-sample-btn">サンプルデータをロード</button>
         </div>
 
         <div class="manual-add-trigger-container">

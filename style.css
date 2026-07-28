@@ -492,27 +492,46 @@ header {
   border-bottom-color: var(--border-hover);
 }
 
-/* Sample Data Trigger */
+/* Sample Data Trigger（2026-07-28: Takeoutの準備待ちで離脱されないよう、主要CTAの
+   すぐ下・ファーストビュー内の目立つ位置へ移動し、見た目もアクセントカラーの
+   セカンダリボタンへ格上げ。従来はヘルプ/Takeoutリンクより下の地味なボタンだった） */
 .sample-trigger-container {
-  margin-top: 1rem;
+  margin-top: 1.25rem;
+}
+
+.sample-trigger-lead {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.6rem;
+  max-width: 380px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .sample-btn {
-  background: transparent;
-  border: 1px solid var(--border-color);
-  color: var(--text-secondary);
-  padding: 0.5rem 1.25rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid var(--accent-primary);
+  color: var(--accent-primary);
+  padding: 0.6rem 1.5rem;
   border-radius: 8px;
-  font-family: var(--font-body);
-  font-size: 0.85rem;
+  font-family: var(--font-title);
+  font-weight: 500;
+  font-size: 0.9rem;
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
+.sample-btn i {
+  width: 16px;
+  height: 16px;
+}
+
 .sample-btn:hover {
-  border-color: var(--border-hover);
-  color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(59, 130, 246, 0.2);
+  transform: translateY(-1px);
 }
 
 .manual-add-trigger-container {
