@@ -129,6 +129,9 @@
                 <button class="btn" id="btn-location-review" type="button">
                   <i data-lucide="alert-triangle"></i> 緯度経度 要確認<span id="location-review-count" class="deleted-spots-badge"></span>
                 </button>
+                <button class="btn" id="btn-duplicate-candidates" type="button">
+                  <i data-lucide="copy-check"></i> 重複候補の確認<span id="duplicate-candidates-count" class="deleted-spots-badge"></span>
+                </button>
                 <button class="btn" id="btn-deleted-spots" type="button">
                   <i data-lucide="undo-2"></i> 削除済みスポット<span id="deleted-spots-count" class="deleted-spots-badge"></span>
                 </button>
@@ -251,6 +254,10 @@
             <select id="filter-wishlist-list" class="select-input" title="「行ってみたい」等、Googleマップのカスタムリストで絞り込み">
               <option value="">すべて（リスト問わず）</option>
             </select>
+            <label class="wishlist-fulfilled-filter-toggle" for="filter-wishlist-fulfilled" title="「行ってみたい」等のリストにあった場所で、実際に行った（評価・クチコミがある）ものだけ表示します">
+              <input type="checkbox" id="filter-wishlist-fulfilled">
+              行きたい→行った済みのみ
+            </label>
             <div class="date-range-wrapper" title="最終更新日で絞り込み">
               <input type="date" id="filter-date-from" class="date-input" aria-label="最終更新日（開始）">
               <span class="date-range-sep">〜</span>
@@ -649,6 +656,25 @@
         ②Geminiが見つけられなかったスポット：前回のバッチでGeminiが情報を返せなかったため、以後の自動バッチ対象から外れています。もう一度試したい場合は「もう一度調べる対象に含める」を押してください。
       </p>
       <div id="location-review-list" class="unknown-spot-list"></div>
+    </div>
+  </div>
+
+  <!-- 重複候補の確認 Modal（同じスポット名・同じ都道府県で住所が異なる行を検出。店舗移転等で
+       別レコードとして残ってしまったケースを想定、2026-07-28実装） -->
+  <div class="modal-overlay" id="duplicate-candidates-overlay">
+    <div class="glass-card modal-card">
+      <div class="card-header">
+        <h3 class="card-title"><i data-lucide="copy-check"></i> 重複候補の確認</h3>
+        <button class="modal-close-btn" id="duplicate-candidates-close" type="button" aria-label="閉じる">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <p class="modal-desc">
+        同じスポット名・同じ都道府県で、住所が異なる行をグループごとに表示します。店舗の移転などで、同じ場所が別レコードとして重複登録されている可能性があります
+        （Google側で移転すると別の場所として扱われ、Takeoutでも別レコードとしてエクスポートされるため、既存の重複排除では1件にまとまりません）。
+        内容を確認し、不要な方（例: 移転前の古い住所）を「削除」してください（削除しても「削除済みスポット」から復元できます）。
+      </p>
+      <div id="duplicate-candidates-list" class="unknown-spot-list"></div>
     </div>
   </div>
 

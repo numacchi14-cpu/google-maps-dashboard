@@ -1580,6 +1580,19 @@ tr:hover td {
   cursor: pointer;
 }
 
+/* 「行きたい→行った済みのみ」絞り込みチェックボックス（2026-07-28実装）。
+   一覧の✨バッジ（wishlist-fulfilled-badge）だけでは、実データが数百件になると
+   スクロールして探すのが大変なため、専用の絞り込みとして追加した。 */
+.wishlist-fulfilled-filter-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
 .modal-divider {
   border: none;
   border-top: 1px solid var(--border-color);

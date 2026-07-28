@@ -14,6 +14,7 @@ function emptyValues(overrides) {
     catMy: "",
     rating: "",
     wishlistList: "",
+    wishlistFulfilledOnly: false,
     dateFrom: "",
     dateTo: "",
     ...overrides
@@ -68,6 +69,18 @@ test("buildFilterMatchersFromValues: wishlistListは__none__でリスト由来�
   const matchers = buildFilterMatchersFromValues(emptyValues({ wishlistList: "__none__" }));
   assert.equal(matchers.wishlistList(place({ wishlistListName: null })), true);
   assert.equal(matchers.wishlistList(place({ wishlistListName: "行ってみたい" })), false);
+});
+
+test("buildFilterMatchersFromValues: wishlistFulfilledOnlyは行きたいリスト由来かつ実際に行った（評価かコメントがある）行だけに一致する（2026-07-28実装）", () => {
+  const matchers = buildFilterMatchersFromValues(emptyValues({ wishlistFulfilledOnly: true }));
+  // 行きたいリスト由来で、評価もコメントも無い（まだ行っていない）→ 一致しない
+  assert.equal(matchers.wishlistFulfilled(place({ wishlistListName: "行ってみたい", rating: null, comment: "" })), false);
+  // 行きたいリスト由来で、評価がある（実際に行った）→ 一致する
+  assert.equal(matchers.wishlistFulfilled(place({ wishlistListName: "行ってみたい", rating: 5, comment: "" })), true);
+  // 行きたいリスト由来で、コメントだけある → 一致する
+  assert.equal(matchers.wishlistFulfilled(place({ wishlistListName: "行ってみたい", rating: null, comment: "行った" })), true);
+  // 行きたいリスト由来ではない（評価はあっても対象外）→ 一致しない
+  assert.equal(matchers.wishlistFulfilled(place({ wishlistListName: null, rating: 5 })), false);
 });
 
 test("placesMatchingFiltersExcept: 除外した軸の条件は無視し、他の軸には引き続きAND適用する（2026-07-28実装：段階的な絞り込み用）", () => {

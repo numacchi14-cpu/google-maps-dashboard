@@ -299,6 +299,7 @@ function setupEventListeners() {
   const filterCatMy = document.getElementById("filter-category-my");
   const filterRating = document.getElementById("filter-rating");
   const filterWishlistList = document.getElementById("filter-wishlist-list");
+  const filterWishlistFulfilled = document.getElementById("filter-wishlist-fulfilled");
   const filterDateFrom = document.getElementById("filter-date-from");
   const filterDateTo = document.getElementById("filter-date-to");
   const btnExportCsv = document.getElementById("btn-export-csv");
@@ -347,6 +348,9 @@ function setupEventListeners() {
   const btnLocationReview = document.getElementById("btn-location-review");
   const locationReviewOverlay = document.getElementById("location-review-overlay");
   const locationReviewClose = document.getElementById("location-review-close");
+  const btnDuplicateCandidates = document.getElementById("btn-duplicate-candidates");
+  const duplicateCandidatesOverlay = document.getElementById("duplicate-candidates-overlay");
+  const duplicateCandidatesClose = document.getElementById("duplicate-candidates-close");
   const paginationPrev = document.getElementById("pagination-prev");
   const paginationNext = document.getElementById("pagination-next");
 
@@ -414,6 +418,7 @@ function setupEventListeners() {
   filterCatMy.addEventListener("change", filterAndRenderFromPage1);
   filterRating.addEventListener("change", filterAndRenderFromPage1);
   filterWishlistList.addEventListener("change", filterAndRenderFromPage1);
+  filterWishlistFulfilled.addEventListener("change", filterAndRenderFromPage1);
   filterDateFrom.addEventListener("change", filterAndRenderFromPage1);
   filterDateTo.addEventListener("change", filterAndRenderFromPage1);
 
@@ -676,6 +681,13 @@ function setupEventListeners() {
   locationReviewClose.addEventListener("click", closeLocationReviewModal);
   locationReviewOverlay.addEventListener("click", (e) => {
     if (e.target === locationReviewOverlay) closeLocationReviewModal();
+  });
+
+  // 重複候補の確認（店舗移転等で住所違いのまま別レコードに残ってしまった候補の確認）
+  btnDuplicateCandidates.addEventListener("click", openDuplicateCandidatesModal);
+  duplicateCandidatesClose.addEventListener("click", closeDuplicateCandidatesModal);
+  duplicateCandidatesOverlay.addEventListener("click", (e) => {
+    if (e.target === duplicateCandidatesOverlay) closeDuplicateCandidatesModal();
   });
 
   // テーブルのページネーション（実データ量が多い場合の描画負荷対策）
@@ -1116,6 +1128,7 @@ function resetApp() {
     deletedPlaces = [];
     updateTrashBadge();
     updateLocationReviewBadge();
+    updateDuplicateCandidatesBadge();
     customCategories = {};
     geminiCategories = {};
     clearUnsavedChanges();
@@ -1137,6 +1150,7 @@ function resetApp() {
     document.getElementById("filter-category-my").value = "";
     document.getElementById("filter-rating").value = "";
     document.getElementById("filter-wishlist-list").value = "";
+    document.getElementById("filter-wishlist-fulfilled").checked = false;
     document.getElementById("filter-date-from").value = "";
     document.getElementById("filter-date-to").value = "";
 
@@ -2130,13 +2144,33 @@ function normalizeDateForCompare(dateStr) {
 
 // 「同一スポットか」を判定するマッチキー。URL→緯度経度→名前+住所の3段階（重複排除・
 // ゴミ箱による再登録抑止の両方で共通して使う）。
+// 住所比較のための正規化（2026-07-28実装）。同じ住所でも、Takeoutの出力形式や
+// 手入力の違いで文字列が微妙に異なることがある（全角数字/半角数字、「日本、〒819-1101」
+// のような国名・郵便番号プレフィックスの有無、ハイフンの字体違い等）。単純な文字列
+// 完全一致だと同一住所を別物と誤判定してしまうため、重複排除（buildPlaceMatchKey）と
+// 重複候補検出（findPossibleDuplicates）の両方で、比較前にこの正規化を通す。
+function normalizeAddressForCompare(address) {
+  if (!address) return "";
+  return address
+    // 全角数字→半角数字
+    .replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+    // 「日本、」「日本,」のような国名プレフィックスを除去
+    .replace(/^日本[、,]?\s*/, "")
+    // 「〒819-1101 」のような郵便番号プレフィックスを除去
+    .replace(/^〒?\d{3}-?\d{4}\s*/, "")
+    // ハイフン類の表記ゆれ（全角ハイフン、長音記号、マイナス記号等）を半角ハイフンに統一
+    .replace(/[－ー−‐﹣─]/g, "-")
+    // 全角/半角スペースを除去
+    .replace(/[\s　]/g, "");
+}
+
 function buildPlaceMatchKey(item) {
   if (item.url) {
     return item.url;
   } else if (item.lat && item.lng) {
     return `${(item.name || "").toLowerCase()}-${item.lat.toFixed(4)}-${item.lng.toFixed(4)}`;
   }
-  return `${(item.name || "").toLowerCase()}-${(item.address || "").toLowerCase()}`;
+  return `${(item.name || "").toLowerCase()}-${normalizeAddressForCompare(item.address).toLowerCase()}`;
 }
 
 // Deduplicate places list
@@ -2839,6 +2873,123 @@ function closeLocationReviewModal() {
   document.getElementById("location-review-overlay").classList.remove("active");
 }
 
+// --- 重複候補の確認（店舗移転等で別レコードとして残った重複の検出、2026-07-28実装）---
+// Google側で店舗が移転すると別の場所として扱われ、Takeoutでも別レコードとして
+// エクスポートされる。既存の重複排除（buildPlaceMatchKey：URL→名前+座標→名前+住所）は
+// 住所が変わると同一スポットと判定できないため、こうした「移転による重複」は
+// 1件にまとまらず残ってしまう（ユーザー報告）。完全自動でのマージは、実際に別々の
+// 店舗（同名チェーン店の別店舗等）を誤って一緒くたにするリスクがあるため行わず、
+// 候補を一覧化して人が確認・手動削除する方式にする。
+// 「同じスポット名」×「同じ都道府県」の組み合わせを候補とする（都道府県も違う場合は
+// 同名チェーン店の別店舗である可能性が高くノイズになりやすいため対象外）。
+// 住所が完全一致かどうかでは絞り込まない：正規化後も住所が同じなら基本的に
+// buildPlaceMatchKeyの時点で1件に統合されているはずだが、片方だけURLがある等の理由で
+// キーが分岐し、住所が同じでも2件残るケースが起こりうるため、そちらもあわせて拾う
+// （実際の住所は一覧に表示するので、表記ゆれだけなのか本当に違う場所なのかは人が見て判断する）。
+function findPossibleDuplicates() {
+  const byName = new Map();
+  places.forEach(p => {
+    const key = (p.name || "").trim();
+    if (!key) return;
+    if (!byName.has(key)) byName.set(key, []);
+    byName.get(key).push(p);
+  });
+
+  const groups = [];
+  byName.forEach((items, name) => {
+    if (items.length < 2) return;
+    const byPref = new Map();
+    items.forEach(p => {
+      const pref = getEffectivePrefecture(p);
+      if (!byPref.has(pref)) byPref.set(pref, []);
+      byPref.get(pref).push(p);
+    });
+    byPref.forEach((prefItems, pref) => {
+      if (prefItems.length < 2) return;
+      groups.push({ name, prefecture: pref, items: prefItems });
+    });
+  });
+  return groups;
+}
+
+function updateDuplicateCandidatesBadge() {
+  const badge = document.getElementById("duplicate-candidates-count");
+  if (!badge) return;
+  const groups = findPossibleDuplicates();
+  badge.textContent = groups.length > 0 ? `(${groups.length})` : "";
+}
+
+function renderDuplicateCandidatesList() {
+  const listEl = document.getElementById("duplicate-candidates-list");
+  if (!listEl) return;
+  listEl.innerHTML = "";
+
+  const groups = findPossibleDuplicates();
+  if (groups.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "unknown-spot-empty";
+    empty.textContent = "重複候補は見つかりませんでした。";
+    listEl.appendChild(empty);
+    return;
+  }
+
+  groups.forEach(group => {
+    const heading = document.createElement("p");
+    heading.className = "gemini-cat-result-heading";
+    heading.textContent = `${group.name}（${group.prefecture}・${group.items.length}件）`;
+    listEl.appendChild(heading);
+
+    group.items.forEach(spot => {
+      const item = document.createElement("div");
+      item.className = "unknown-spot-item deleted-spot-item";
+
+      const info = document.createElement("div");
+      info.className = "unknown-spot-item-info";
+      const addrEl = document.createElement("strong");
+      addrEl.textContent = spot.address || "住所不明";
+      info.appendChild(addrEl);
+      const metaEl = document.createElement("span");
+      const metaParts = [
+        spot.rating ? `★${spot.rating}` : "評価なし",
+        spot.publishTime ? `最終更新: ${spot.publishTime}` : "最終更新日なし"
+      ];
+      metaEl.textContent = metaParts.join(" / ");
+      info.appendChild(metaEl);
+      item.appendChild(info);
+
+      const actions = document.createElement("div");
+      actions.className = "deleted-spot-item-actions";
+      const deleteBtn = document.createElement("button");
+      deleteBtn.className = "btn";
+      deleteBtn.type = "button";
+      deleteBtn.style.background = "rgba(239, 68, 68, 0.1)";
+      deleteBtn.style.borderColor = "rgba(239, 68, 68, 0.2)";
+      deleteBtn.style.color = "#ef4444";
+      deleteBtn.textContent = "削除";
+      deleteBtn.addEventListener("click", () => {
+        if (confirm(`「${spot.name}」（${spot.address || "住所不明"}）を削除しますか？（「削除済みスポット」から復元できます）`)) {
+          moveToTrash([spot.id]);
+          setupDropdownFilters();
+          filterAndRender();
+          renderDuplicateCandidatesList();
+        }
+      });
+      actions.appendChild(deleteBtn);
+      item.appendChild(actions);
+      listEl.appendChild(item);
+    });
+  });
+}
+
+function openDuplicateCandidatesModal() {
+  renderDuplicateCandidatesList();
+  document.getElementById("duplicate-candidates-overlay").classList.add("active");
+}
+
+function closeDuplicateCandidatesModal() {
+  document.getElementById("duplicate-candidates-overlay").classList.remove("active");
+}
+
 // --- スポット情報のGemini検索（手動追加の補助、2026-07-24実装）---
 // Takeoutの600件上限等で漏れた古いクチコミを手動で追加する際、正式名称・住所・
 // 緯度経度・カテゴリーをうろ覚えの情報（都道府県+店名など）からGeminiに検索して
@@ -3317,6 +3468,9 @@ function readCurrentFilterValues() {
     catMy: document.getElementById("filter-category-my").value,
     rating: document.getElementById("filter-rating").value, // "" | "1"〜"5" | "__unset__"
     wishlistList: document.getElementById("filter-wishlist-list").value,
+    // 「行きたい→行った済みのみ」チェックボックス（2026-07-28実装）。一覧の✨バッジと
+    // 同じ条件（wishlistListNameがあり、かつ評価/コメントもある＝実際に行った）で絞り込む。
+    wishlistFulfilledOnly: document.getElementById("filter-wishlist-fulfilled").checked,
     dateFrom: document.getElementById("filter-date-from").value, // "YYYY-MM-DD" or ""
     dateTo: document.getElementById("filter-date-to").value
   };
@@ -3340,6 +3494,9 @@ function buildFilterMatchersFromValues(v) {
     rating: p => !v.rating || (v.rating === "__unset__" ? p.rating == null : p.rating === parseInt(v.rating, 10)),
     // Googleマップのカスタムリスト（「行ってみたい」等）で絞り込み（2026-07-28実装）
     wishlistList: p => !v.wishlistList || (v.wishlistList === "__none__" ? !p.wishlistListName : p.wishlistListName === v.wishlistList),
+    // 「行きたい→行った済みのみ」：リスト由来（wishlistListNameあり）かつ実際に行った
+    // （評価かコメントがある）行だけに絞り込む（2026-07-28実装。一覧の✨バッジと同じ条件）。
+    wishlistFulfilled: p => !v.wishlistFulfilledOnly || !!(p.wishlistListName && (p.rating != null || p.comment)),
     // 「最終更新日」列・ソートと同じくpublishTimeを見る（Google Takeoutは真の初回投稿日を
     // 出力せず、この日付が編集のたびに更新されて返ってくるため。2026-07-26に一度updateTime
     // 側に直したが、実データではupdateTimeがほぼ空で誤りだったため巻き戻した。詳細はSPEC.md）。
@@ -3404,6 +3561,7 @@ function filterAndRender() {
   renderMapMarkers(filtered);
   renderCharts(filtered);
   updateLocationReviewBadge();
+  updateDuplicateCandidatesBadge();
 }
 
 // Render Stats Cards
@@ -4707,5 +4865,5 @@ function loadSampleData() {
 
 // Expose pure logic functions for Node-based tests (no-op in the browser).
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { classifyCategory, extractPrefecture, parseAppBackupJSON, getAllCategories, customCategories, geminiCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, summarizeUnresolvedMyCategoryNames, getOrCreateGeminiCategory, buildGeminiCategoryPrompt, extractJSONArrayFromGeminiResponse, parseGeminiCategoryResponse, applyGeminiCategoryResults, getGeminiLocationIncompletePlaces, buildGeminiLocationPrompt, parseGeminiLocationResponse, applyGeminiLocationResults, parsePlaceLookupQueries, buildPlaceLookupPrompt, parsePlaceLookupResponse, checkPlaceLookupCoordinateMismatch, buildManualPlaceFieldsFromLookupCandidate, deduplicatePlaces, buildPlaceMatchKey, isSavedListCSV, parseSavedListCSV, buildFilterMatchersFromValues, placesMatchingFiltersExcept, places, shouldScheduleLocalCacheWrite };
+  module.exports = { classifyCategory, extractPrefecture, parseAppBackupJSON, getAllCategories, customCategories, geminiCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, summarizeUnresolvedMyCategoryNames, getOrCreateGeminiCategory, buildGeminiCategoryPrompt, extractJSONArrayFromGeminiResponse, parseGeminiCategoryResponse, applyGeminiCategoryResults, getGeminiLocationIncompletePlaces, buildGeminiLocationPrompt, parseGeminiLocationResponse, applyGeminiLocationResults, parsePlaceLookupQueries, buildPlaceLookupPrompt, parsePlaceLookupResponse, checkPlaceLookupCoordinateMismatch, buildManualPlaceFieldsFromLookupCandidate, deduplicatePlaces, buildPlaceMatchKey, isSavedListCSV, parseSavedListCSV, buildFilterMatchersFromValues, placesMatchingFiltersExcept, findPossibleDuplicates, normalizeAddressForCompare, places, shouldScheduleLocalCacheWrite };
 }
