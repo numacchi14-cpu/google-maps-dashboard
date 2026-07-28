@@ -65,6 +65,12 @@ test("parseGeminiCategoryResponse: ```json コードフェンス付きの回答�
   assert.deepEqual(results, [{ id: "p1", category: "神社" }]);
 });
 
+test("parseGeminiCategoryResponse: コードフェンス無しで前後に説明文が付いていても抽出してパースする（2026-07-28追加）", () => {
+  const text = 'かしこまりました。結果は以下の通りです。\n[{"id": "p1", "category": "神社"}]\nご確認ください。';
+  const results = parseGeminiCategoryResponse(text);
+  assert.deepEqual(results, [{ id: "p1", category: "神社" }]);
+});
+
 test("parseGeminiCategoryResponse: 不正なJSON/配列以外はnullを返す", () => {
   assert.equal(parseGeminiCategoryResponse("これはJSONではありません"), null);
   assert.equal(parseGeminiCategoryResponse('{"id": "p1", "category": "神社"}'), null);

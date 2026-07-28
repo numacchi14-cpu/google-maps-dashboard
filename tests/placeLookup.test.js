@@ -55,6 +55,12 @@ test("parsePlaceLookupResponse: ```json コードフェンス付きの回答も�
   assert.deepEqual(results, [{ id: "q1", candidates: [] }]);
 });
 
+test("parsePlaceLookupResponse: コードフェンス無しで前後に説明文が付いていても抽出してパースする（2026-07-28追加）", () => {
+  const text = 'こちらが検索結果です。\n[{"id":"q1","candidates":[]}]\n以上です。';
+  const results = parsePlaceLookupResponse(text);
+  assert.deepEqual(results, [{ id: "q1", candidates: [] }]);
+});
+
 test("parsePlaceLookupResponse: 不正なJSON/配列以外はnullを返す", () => {
   assert.equal(parsePlaceLookupResponse("これはJSONではありません"), null);
   assert.equal(parsePlaceLookupResponse('{"id":"q1"}'), null);

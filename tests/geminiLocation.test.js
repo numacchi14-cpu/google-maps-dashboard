@@ -57,6 +57,12 @@ test("parseGeminiLocationResponse: 緯度経度が数値でない/範囲外の�
   assert.deepEqual(results, [{ id: "p1" }, { id: "p2" }]);
 });
 
+test("parseGeminiLocationResponse: コードフェンス無しで前後に説明文が付いていても抽出してパースする（2026-07-28追加）", () => {
+  const text = '承知しました。\n[{"id": "p1", "url": "https://maps.google.com/?q=1"}]\n以上です。';
+  const results = parseGeminiLocationResponse(text);
+  assert.deepEqual(results, [{ id: "p1", url: "https://maps.google.com/?q=1" }]);
+});
+
 test("parseGeminiLocationResponse: 不正なJSON/配列以外はnullを返す", () => {
   assert.equal(parseGeminiLocationResponse("これはJSONではありません"), null);
   assert.equal(parseGeminiLocationResponse('{"id": "p1"}'), null);
@@ -90,7 +96,10 @@ test("applyGeminiLocationResults: 既に値がある項目は上書きしない�
   assert.equal(places[0].lng, 139.1);
 });
 
-test("applyGeminiLocationResults: 住所と座標の都道府県が食い違う場合は緯度経度を反映せず理由を返す（ハルシネーション対策）", () => {
+test("applyGeminiLocationResults: 住所と座標の都道府県が食い違う場合でも座標は登録し、要確認フラグを立てる（2026-07-28変更）", () => {
+  // 以前は反映せず理由だけ返していたが、それだと座標が未設定のまま残り、次回以降の
+  // バッチにも同じスポットが毎回出てきてしまっていた（ユーザー報告）。座標はいったん
+  // 登録した上でlocationNeedsReviewを立てて「リンク・緯度経度 要確認」に隔離する方式に変更。
   places.length = 0;
   places.push({ id: "p1", name: "テスト", address: "福岡県福岡市中央区天神1-1", url: "", lat: null, lng: null });
 
@@ -98,10 +107,16 @@ test("applyGeminiLocationResults: 住所と座標の都道府県が食い違う�
   const applied = applyGeminiLocationResults([{ id: "p1", url: "https://maps.example/1", lat: 35.6586, lng: 139.7454 }]);
 
   assert.equal(applied[0].urlApplied, true);
-  assert.equal(applied[0].coordsApplied, false);
-  assert.ok(applied[0].coordsSkippedReason);
-  assert.equal(places[0].lat, null);
-  assert.equal(places[0].lng, null);
+  assert.equal(applied[0].coordsApplied, true);
+  assert.equal(applied[0].coordsNeedsReview, true);
+  assert.ok(applied[0].coordsReviewReason);
+  assert.equal(places[0].lat, 35.6586);
+  assert.equal(places[0].lng, 139.7454);
+  assert.equal(places[0].locationNeedsReview, true);
+  assert.ok(places[0].locationReviewReason);
+
+  // 座標が登録された以上、次回以降のバッチ対象からは外れる（今回直したかった再出現バグの回帰確認）
+  assert.deepEqual(getGeminiLocationIncompletePlaces().map(p => p.id), []);
 });
 
 test("applyGeminiLocationResults: 一致するidがない場合はスキップし結果に含めない", () => {

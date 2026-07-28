@@ -282,6 +282,11 @@ header {
   color: var(--accent-primary);
 }
 
+/* 2026-07-28変更：中身がdrive-syncだけの頃はalign-items:centerで縦センタリング
+   していたが、下にツールバー（#header-actions、旧・別ブロック）を統合した結果、
+   drive-syncを常に上端に固定してツールバーがその下に続くレイアウトに変える
+   （センタリングのままだと、ツールバーが無い＝データ未読み込み時にdrive-syncが
+   カード中央に浮いてしまう）。 */
 .hero-actions {
   flex: 1 1 280px;
   min-width: 260px;
@@ -292,7 +297,10 @@ header {
   backdrop-filter: blur(12px);
   box-shadow: var(--card-shadow);
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 1.25rem;
 }
 
 .hero-actions .drive-sync {
@@ -788,12 +796,25 @@ header {
   font-size: 0.85rem;
 }
 
-/* Actions Menu */
+/* Actions Menu：2026-07-28に.hero-actionsカード内へ統合したのに合わせ、右寄せ
+   （ページ幅いっぱいの独立ツールバーだった頃の名残）をやめて左寄せに変更。
+   実際の登録手順（Takeoutを開く→取り込み→分類｜手動追加・座標補完｜設定・エクスポート等）
+   に沿って.action-button-group単位でグルーピングし、グループの間だけ罫線で区切る。 */
 .action-buttons {
   display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.action-button-group {
+  display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
   gap: 0.75rem;
+}
+
+.action-button-group:not(:first-child) {
+  padding-top: 0.85rem;
+  border-top: 1px dashed var(--border-color);
 }
 
 .action-buttons a.btn {
@@ -1224,6 +1245,27 @@ tr:hover td {
   color: var(--text-primary);
 }
 
+/* Table Pagination（2026-07-28実装）：実データが数百件になっても一覧を一括描画しない
+   よう50件区切りで表示する。1ページに収まる件数の時はrenderTable側でdisplay:noneにする。 */
+.table-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 1rem 0 0.25rem;
+  flex-wrap: wrap;
+}
+
+.pagination-info {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.table-pagination button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* Link Actions */
 .maps-link-btn {
   color: var(--text-secondary);
@@ -1533,6 +1575,26 @@ tr:hover td {
   color: var(--text-primary);
 }
 
+.gemini-cat-step-header-buttons {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.gemini-cat-step-header-buttons a.btn {
+  text-decoration: none;
+}
+
+/* コピー成功時の一時的なフィードバック（2026-07-28実装）。データ量が多いと
+   navigator.clipboard.writeText自体は一瞬で終わるが、見た目に変化が無く
+   コピーできたか分かりづらいという指摘を受けて追加。 */
+.copy-btn-success {
+  background: rgba(34, 197, 94, 0.15) !important;
+  border-color: rgba(34, 197, 94, 0.4) !important;
+  color: #22c55e !important;
+}
+
 .gemini-cat-textarea {
   resize: vertical;
   min-height: 90px;
@@ -1773,6 +1835,41 @@ tr:hover td {
 
   .hero-row {
     flex-direction: column;
+  }
+
+  /* モバイルでの表示優先順位の入れ替え（2026-07-28実装）。hero-card（Spotlogの説明〜
+     プライバシーポリシー）は、実際にはGoogleのOAuth本番審査対策として「ホームページに
+     アプリの目的説明を常時表示する」ために作った部分で、閉じたdetails要素やdisplay:none
+     での非表示化は審査対策上避けたい（過去に同じ理由で却下した判断、SPEC.md参照）。
+     そのため内容・表示状態はそのまま維持しつつ、実際の操作（Drive連携・ツールバー）を
+     先に、説明カードは後ろ・小さめの見た目に回すことで「毎回開くたびに説明文が
+     操作の前に立ちはだかる」不満を解消する。 */
+  .hero-actions {
+    order: 1;
+  }
+
+  .hero-card {
+    order: 2;
+    padding: 1rem;
+  }
+
+  .hero-card h1 {
+    font-size: 1.4rem;
+    margin-bottom: 0.35rem;
+  }
+
+  .hero-lead {
+    font-size: 0.8rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .hero-drive-facts {
+    font-size: 0.72rem;
+  }
+
+  .hero-en {
+    font-size: 0.7rem;
+    margin-bottom: 0.5rem;
   }
 
   /* 操作メニュー（ファイルを追加読み込み〜リセット）の折りたたみ。モバイルは

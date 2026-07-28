@@ -76,54 +76,71 @@
             </label>
             <span class="drive-sync-status" id="local-cache-status"></span>
           </div>
+
+          <!-- ツールバー（ファイル読み込み〜リセット）は、デスクトップではこの.hero-actions
+               カード内でdrive-syncの下に収まる（以前は別ブロックとして下に置かれ、この
+               カードの下半分が空白のまま余っていたため、2026-07-28に統合）。モバイルでの
+               折りたたみ・表示位置（hero-cardより先に来る）は@media側で制御する。 -->
+          <div id="header-actions" style="display: none;">
+            <!-- モバイルでのみ表示される折りたたみ切替（デスクトップでは常時展開のまま、
+                 従来通り.action-buttonsがそのまま見える）。初期状態はモバイルでは
+                 折りたたみ（.collapsed）にして、縦に長く伸びる問題を緩和する。 -->
+            <button class="toolbar-toggle" id="toolbar-toggle" type="button" aria-expanded="false" aria-controls="toolbar-buttons">
+              <span><i data-lucide="sliders-horizontal"></i> 操作メニュー</span>
+              <i data-lucide="chevron-down" id="toolbar-toggle-icon"></i>
+            </button>
+            <!-- ボタンの並びは実際の登録手順に沿って3グループ化（2026-07-28、ユーザー
+                 フィードバックにより再編）：①メイン（Takeoutを開く→取り込み→分類）
+                 ②サブ（Takeout上限を補う手動追加・検索・座標補完）③管理系（設定・
+                 エクスポート・ゴミ箱・リセット、頻度は低いので最後）。 -->
+            <div class="action-buttons collapsed" id="toolbar-buttons">
+              <div class="action-button-group">
+                <a class="btn" href="https://takeout.google.com/settings/takeout" target="_blank" rel="noopener noreferrer">
+                  <i data-lucide="external-link"></i> Google Takeoutを開く
+                </a>
+                <button class="btn" id="btn-add-files" type="button">
+                  <i data-lucide="upload"></i> ファイルを追加読み込み
+                </button>
+                <button class="btn" id="btn-gemini-category" type="button">
+                  <i data-lucide="sparkles"></i> Google連動カテゴリーをGeminiで調べる
+                </button>
+              </div>
+              <div class="action-button-group">
+                <button class="btn" id="btn-manual-add" type="button">
+                  <i data-lucide="plus"></i> ログを手動で追加
+                </button>
+                <button class="btn" id="btn-place-lookup" type="button">
+                  <i data-lucide="map-pin-plus"></i> スポット情報をGeminiで調べる
+                </button>
+                <button class="btn" id="btn-gemini-location" type="button">
+                  <i data-lucide="crosshair"></i> リンク・緯度経度をGeminiで調べる
+                </button>
+              </div>
+              <div class="action-button-group">
+                <button class="btn" id="btn-category-settings" type="button">
+                  <i data-lucide="settings"></i> マイカテゴリー設定
+                </button>
+                <button class="btn" id="btn-export-csv">
+                  <i data-lucide="download"></i> CSVエクスポート
+                </button>
+                <button class="btn" id="btn-export-json">
+                  <i data-lucide="file-json"></i> JSONエクスポート
+                </button>
+                <button class="btn" id="btn-location-review" type="button">
+                  <i data-lucide="alert-triangle"></i> 緯度経度 要確認<span id="location-review-count" class="deleted-spots-badge"></span>
+                </button>
+                <button class="btn" id="btn-deleted-spots" type="button">
+                  <i data-lucide="undo-2"></i> 削除済みスポット<span id="deleted-spots-count" class="deleted-spots-badge"></span>
+                </button>
+                <button class="btn btn-danger" id="btn-reset" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: #ef4444;">
+                  <i data-lucide="trash-2"></i> リセット
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </header>
-
-    <div id="header-actions" style="display: none;">
-      <!-- モバイルでのみ表示される折りたたみ切替（デスクトップでは常時展開のまま、
-           従来通り.action-buttonsがそのまま見える）。初期状態はモバイルでは
-           折りたたみ（.collapsed）にして、縦に長く伸びる問題を緩和する。 -->
-      <button class="toolbar-toggle" id="toolbar-toggle" type="button" aria-expanded="false" aria-controls="toolbar-buttons">
-        <span><i data-lucide="sliders-horizontal"></i> 操作メニュー</span>
-        <i data-lucide="chevron-down" id="toolbar-toggle-icon"></i>
-      </button>
-      <div class="action-buttons collapsed" id="toolbar-buttons">
-        <button class="btn" id="btn-add-files" type="button">
-          <i data-lucide="upload"></i> ファイルを追加読み込み
-        </button>
-        <a class="btn" href="https://takeout.google.com/settings/takeout" target="_blank" rel="noopener noreferrer">
-          <i data-lucide="external-link"></i> Google Takeoutを開く
-        </a>
-        <button class="btn" id="btn-manual-add" type="button">
-          <i data-lucide="plus"></i> ログを手動で追加
-        </button>
-        <button class="btn" id="btn-place-lookup" type="button">
-          <i data-lucide="map-pin-plus"></i> スポット情報をGeminiで調べる
-        </button>
-        <button class="btn" id="btn-category-settings" type="button">
-          <i data-lucide="settings"></i> マイカテゴリー設定
-        </button>
-        <button class="btn" id="btn-gemini-category" type="button">
-          <i data-lucide="sparkles"></i> Google連動カテゴリーをGeminiで調べる
-        </button>
-        <button class="btn" id="btn-gemini-location" type="button">
-          <i data-lucide="crosshair"></i> リンク・緯度経度をGeminiで調べる
-        </button>
-        <button class="btn" id="btn-export-csv">
-          <i data-lucide="download"></i> CSVエクスポート
-        </button>
-        <button class="btn" id="btn-export-json">
-          <i data-lucide="file-json"></i> JSONエクスポート
-        </button>
-        <button class="btn" id="btn-deleted-spots" type="button">
-          <i data-lucide="undo-2"></i> 削除済みスポット<span id="deleted-spots-count" class="deleted-spots-badge"></span>
-        </button>
-        <button class="btn btn-danger" id="btn-reset" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: #ef4444;">
-          <i data-lucide="trash-2"></i> リセット
-        </button>
-      </div>
-    </div>
 
     <!-- Upload Area -->
     <div id="upload-section">
@@ -261,6 +278,20 @@
             <h3>データが見つかりません</h3>
             <p>検索条件やフィルターを変更してみてください。</p>
           </div>
+        </div>
+
+        <!-- テーブルのページネーション（2026-07-28実装）：実データが数百件になると
+             一覧を一括描画するのが重く、開いた瞬間に全件が並んでしまうこと自体も
+             運用上好ましくないため、50件ずつページ切り替えする。絞り込み結果が
+             50件以下の時は表示しない（renderTable側でdisplay:noneに切り替える）。 -->
+        <div class="table-pagination" id="table-pagination" style="display: none;">
+          <button class="btn" id="pagination-prev" type="button">
+            <i data-lucide="chevron-left"></i> 前へ
+          </button>
+          <span class="pagination-info" id="pagination-info"></span>
+          <button class="btn" id="pagination-next" type="button">
+            次へ <i data-lucide="chevron-right"></i>
+          </button>
         </div>
       </div>
 
@@ -442,7 +473,10 @@
       <div class="gemini-cat-step">
         <div class="gemini-cat-step-header">
           <span>① Geminiに渡すプロンプト</span>
-          <button class="btn" id="btn-gemini-copy-prompt" type="button"><i data-lucide="copy"></i> コピー</button>
+          <div class="gemini-cat-step-header-buttons">
+            <button class="btn" id="btn-gemini-copy-prompt" type="button"><i data-lucide="copy"></i> コピー</button>
+            <a class="btn" href="https://gemini.google.com/" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link"></i> Geminiを開く</a>
+          </div>
         </div>
         <textarea id="gemini-cat-prompt" class="search-input gemini-cat-textarea" readonly rows="8" title="Geminiに渡すプロンプト" placeholder="対象スポットがありません"></textarea>
       </div>
@@ -478,7 +512,10 @@
       <div class="gemini-cat-step">
         <div class="gemini-cat-step-header">
           <span>① Geminiに渡すプロンプト</span>
-          <button class="btn" id="btn-gemini-loc-copy-prompt" type="button"><i data-lucide="copy"></i> コピー</button>
+          <div class="gemini-cat-step-header-buttons">
+            <button class="btn" id="btn-gemini-loc-copy-prompt" type="button"><i data-lucide="copy"></i> コピー</button>
+            <a class="btn" href="https://gemini.google.com/" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link"></i> Geminiを開く</a>
+          </div>
         </div>
         <textarea id="gemini-loc-prompt" class="search-input gemini-cat-textarea gemini-cat-textarea-compact" readonly rows="4" title="Geminiに渡すプロンプト" placeholder="対象スポットがありません"></textarea>
       </div>
@@ -522,7 +559,10 @@
       <div class="gemini-cat-step">
         <div class="gemini-cat-step-header">
           <span>② Geminiに渡すプロンプト</span>
-          <button class="btn" id="btn-place-lookup-copy-prompt" type="button"><i data-lucide="copy"></i> コピー</button>
+          <div class="gemini-cat-step-header-buttons">
+            <button class="btn" id="btn-place-lookup-copy-prompt" type="button"><i data-lucide="copy"></i> コピー</button>
+            <a class="btn" href="https://gemini.google.com/" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link"></i> Geminiを開く</a>
+          </div>
         </div>
         <textarea id="place-lookup-prompt" class="search-input gemini-cat-textarea" readonly rows="8" title="Geminiに渡すプロンプト" placeholder="①でリストを入力してから生成してください"></textarea>
       </div>
@@ -581,6 +621,23 @@
         ここにある間は、Google Takeoutなどを再読み込みしても自動的には復活しません。「完全に削除」を押すと、以後の再インポートで復活しうる状態に戻ります。
       </p>
       <div id="deleted-spots-list" class="unknown-spot-list"></div>
+    </div>
+  </div>
+
+  <!-- リンク・緯度経度 要確認 Modal（座標のハルシネーション疑いがあるまま登録されたスポットの確認、2026-07-28実装） -->
+  <div class="modal-overlay" id="location-review-overlay">
+    <div class="glass-card modal-card">
+      <div class="card-header">
+        <h3 class="card-title"><i data-lucide="alert-triangle"></i> リンク・緯度経度 要確認</h3>
+        <button class="modal-close-btn" id="location-review-close" type="button" aria-label="閉じる">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <p class="modal-desc">
+        「リンク・緯度経度をGeminiで調べる」で反映した緯度経度のうち、住所から判定した都道府県と座標から判定した都道府県が食い違っていたスポットです。
+        地図や住所と照らし合わせて問題なければ「確認OK」を押してください（座標やスポット自体は変更されず、フラグだけが外れます）。
+      </p>
+      <div id="location-review-list" class="unknown-spot-list"></div>
     </div>
   </div>
 

@@ -18,6 +18,13 @@ let prefectureChart = null;
 // 詳細はSPEC.md参照。一度updateTime寄りに直したが、これは誤りだったため巻き戻した）。
 let currentSortColumn = 'publishTime';
 let currentSortDirection = 'desc';
+
+// テーブル表示のページネーション（2026-07-28実装）：実データ900件超を一覧テーブルに
+// 一括描画すると描画が重く、かつ「開いたら全件が画面に並ぶ」こと自体が運用上好ましくない
+// ため、50件区切りでページ切り替えする。絞り込み・地図・グラフ・統計カードは引き続き
+// 絞り込み結果全体を対象にし、ページングの対象はテーブルの描画のみ。
+const TABLE_PAGE_SIZE = 50;
+let currentTablePage = 1;
 // カテゴリー比率チャートの集計軸: 'google'（Google連動カテゴリー、生ラベルそのまま）
 // または 'my'（マイカテゴリー。未設定はGoogle連動にフォールバック＝従来の実効値）
 let categoryChartAxis = 'google';
@@ -193,6 +200,22 @@ function registerCustomCategory(key, name, color) {
   }
 }
 
+// コピー成功時、ボタンを一時的に「コピーしました」表示へ切り替える（2026-07-28実装）。
+// navigator.clipboard.writeText自体は一瞬で終わり見た目に変化が無いため、実際にコピー
+// できたのかが特にデータ量が多く重い時ほど分かりづらいというユーザーからの指摘で追加。
+function showCopySuccess(button) {
+  if (!button) return;
+  const original = button.innerHTML;
+  button.innerHTML = '<i data-lucide="check"></i> コピーしました';
+  button.classList.add("copy-btn-success");
+  lucide.createIcons();
+  setTimeout(() => {
+    button.innerHTML = original;
+    button.classList.remove("copy-btn-success");
+    lucide.createIcons();
+  }, 1500);
+}
+
 // Initialize UI and Events
 document.addEventListener("DOMContentLoaded", () => {
   // Lucide Icons
@@ -320,6 +343,11 @@ function setupEventListeners() {
   const btnDeletedSpots = document.getElementById("btn-deleted-spots");
   const deletedSpotsOverlay = document.getElementById("deleted-spots-overlay");
   const deletedSpotsClose = document.getElementById("deleted-spots-close");
+  const btnLocationReview = document.getElementById("btn-location-review");
+  const locationReviewOverlay = document.getElementById("location-review-overlay");
+  const locationReviewClose = document.getElementById("location-review-close");
+  const paginationPrev = document.getElementById("pagination-prev");
+  const paginationNext = document.getElementById("pagination-next");
 
   // Google Drive sync
   btnDriveConnect.addEventListener("click", connectGoogleDrive);
@@ -372,14 +400,16 @@ function setupEventListeners() {
   // Sample data loading
   loadSampleBtn.addEventListener("click", loadSampleData);
 
-  // Filters and Search
-  searchBox.addEventListener("input", filterAndRender);
-  filterPref.addEventListener("change", filterAndRender);
-  filterCatGoogle.addEventListener("change", filterAndRender);
-  filterCatMy.addEventListener("change", filterAndRender);
-  filterRating.addEventListener("change", filterAndRender);
-  filterDateFrom.addEventListener("change", filterAndRender);
-  filterDateTo.addEventListener("change", filterAndRender);
+  // Filters and Search（絞り込み条件が変わったら1ページ目に戻す。データ編集時に
+  // 呼ばれるfilterAndRender()は現在のページを維持したいため、ここだけ専用にする）
+  const filterAndRenderFromPage1 = () => { currentTablePage = 1; filterAndRender(); };
+  searchBox.addEventListener("input", filterAndRenderFromPage1);
+  filterPref.addEventListener("change", filterAndRenderFromPage1);
+  filterCatGoogle.addEventListener("change", filterAndRenderFromPage1);
+  filterCatMy.addEventListener("change", filterAndRenderFromPage1);
+  filterRating.addEventListener("change", filterAndRenderFromPage1);
+  filterDateFrom.addEventListener("change", filterAndRenderFromPage1);
+  filterDateTo.addEventListener("change", filterAndRenderFromPage1);
 
   // Sorting
   document.querySelectorAll("th[data-sort]").forEach(th => {
@@ -392,6 +422,7 @@ function setupEventListeners() {
         currentSortDirection = 'asc';
       }
       updateSortIcons();
+      currentTablePage = 1;
       filterAndRender();
     });
   });
@@ -450,6 +481,7 @@ function setupEventListeners() {
       promptEl.select();
       document.execCommand("copy");
     }
+    showCopySuccess(btnGeminiCopyPrompt);
   });
   btnGeminiApply.addEventListener("click", () => {
     const responseEl = document.getElementById("gemini-cat-response");
@@ -502,6 +534,7 @@ function setupEventListeners() {
       promptEl.select();
       document.execCommand("copy");
     }
+    showCopySuccess(btnGeminiLocCopyPrompt);
   });
   btnGeminiLocApply.addEventListener("click", () => {
     const responseEl = document.getElementById("gemini-loc-response");
@@ -519,7 +552,10 @@ function setupEventListeners() {
     filterAndRender();
     refreshGeminiLocationModal();
     const remaining = getGeminiLocationIncompletePlaces().length;
-    statusEl.textContent = `${applied.length}件を反映しました。` + (remaining > 0 ? ` 続けて次のバッチ（残り${remaining}件）を取得できます。` : " すべて取得済みです。");
+    const reviewCount = applied.filter(item => item.coordsNeedsReview).length;
+    statusEl.textContent = `${applied.length}件を反映しました。`
+      + (remaining > 0 ? ` 続けて次のバッチ（残り${remaining}件）を取得できます。` : " すべて取得済みです。")
+      + (reviewCount > 0 ? ` うち${reviewCount}件は座標が住所と食い違う疑いがあるため「リンク・緯度経度 要確認」に追加されました。` : "");
 
     // Geminiが実際に何と答えたか、どこまで反映できたかをその場で確認できるようにする
     resultListEl.innerHTML = "";
@@ -534,8 +570,8 @@ function setupEventListeners() {
         const li = document.createElement("li");
         const parts = [];
         if (item.urlApplied) parts.push("リンクを反映");
-        if (item.coordsApplied) parts.push("緯度経度を反映");
-        if (item.coordsSkippedReason) parts.push(`⚠️ 緯度経度は反映せず（${item.coordsSkippedReason}）`);
+        if (item.coordsNeedsReview) parts.push(`緯度経度を反映（⚠️ 要確認: ${item.coordsReviewReason}）`);
+        else if (item.coordsApplied) parts.push("緯度経度を反映");
         if (parts.length === 0) parts.push("反映できる項目がありませんでした");
         li.textContent = `${item.name}: ${parts.join(" / ")}`;
         ul.appendChild(li);
@@ -581,6 +617,7 @@ function setupEventListeners() {
       promptEl.select();
       document.execCommand("copy");
     }
+    showCopySuccess(btnPlaceLookupCopyPrompt);
   });
   btnPlaceLookupApply.addEventListener("click", () => {
     const responseEl = document.getElementById("place-lookup-response");
@@ -625,6 +662,27 @@ function setupEventListeners() {
   deletedSpotsClose.addEventListener("click", closeDeletedSpotsModal);
   deletedSpotsOverlay.addEventListener("click", (e) => {
     if (e.target === deletedSpotsOverlay) closeDeletedSpotsModal();
+  });
+
+  // リンク・緯度経度 要確認（座標のハルシネーション疑いがあるまま登録されたスポットの確認）
+  btnLocationReview.addEventListener("click", openLocationReviewModal);
+  locationReviewClose.addEventListener("click", closeLocationReviewModal);
+  locationReviewOverlay.addEventListener("click", (e) => {
+    if (e.target === locationReviewOverlay) closeLocationReviewModal();
+  });
+
+  // テーブルのページネーション（実データ量が多い場合の描画負荷対策）
+  paginationPrev.addEventListener("click", () => {
+    if (currentTablePage > 1) {
+      currentTablePage--;
+      filterAndRender();
+      document.querySelector(".table-card").scrollIntoView({ block: "start" });
+    }
+  });
+  paginationNext.addEventListener("click", () => {
+    currentTablePage++;
+    filterAndRender();
+    document.querySelector(".table-card").scrollIntoView({ block: "start" });
   });
 
   // カテゴリー比率チャートの集計軸切り替え（Google連動 / マイカテゴリー）
@@ -1048,6 +1106,7 @@ function resetApp() {
     places = [];
     deletedPlaces = [];
     updateTrashBadge();
+    updateLocationReviewBadge();
     customCategories = {};
     geminiCategories = {};
     clearUnsavedChanges();
@@ -1645,7 +1704,9 @@ function parseAppBackupJSON(json) {
       url: item.googleMapsUrl || "",
       source: item.source || "JSONバックアップ復元",
       publishTime: item.publishTime || "",
-      updateTime: item.updateTime || ""
+      updateTime: item.updateTime || "",
+      locationNeedsReview: item.locationNeedsReview || false,
+      locationReviewReason: item.locationReviewReason || null
     };
   });
 }
@@ -2330,19 +2391,40 @@ function buildGeminiCategoryPrompt(batchPlaces) {
 
 // Geminiの回答テキストをパースする。```json ... ``` のコードフェンス付きでも許容する。
 // 配列でない/JSONとして壊れている場合はnullを返す。
-function parseGeminiCategoryResponse(text) {
+// Geminiの回答からJSON配列を抽出する共通ヘルパー（2026-07-28実装）。```json フェンス付き
+// 回答はこれまで通り剥がすが、フェンスなしで前後に「こちらが結果です」のような説明文が
+// 付いてしまった回答は従来ここでパース失敗になっていた。フェンスを外した上での直接パースが
+// 失敗した場合、最初の "[" から最後の "]" までを切り出して再度パースを試みることで救済する
+// （3つのGemini連携＝カテゴリー・リンク緯度経度・スポット検索で共通のパース前処理）。
+function extractJSONArrayFromGeminiResponse(text) {
   if (!text) return null;
   let cleaned = text.trim();
   const fenceMatch = cleaned.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
   if (fenceMatch) cleaned = fenceMatch[1].trim();
 
-  let data;
-  try {
-    data = JSON.parse(cleaned);
-  } catch (e) {
-    return null;
+  const tryParseArray = (str) => {
+    try {
+      const data = JSON.parse(str);
+      return Array.isArray(data) ? data : null;
+    } catch (e) {
+      return null;
+    }
+  };
+
+  const direct = tryParseArray(cleaned);
+  if (direct) return direct;
+
+  const start = cleaned.indexOf("[");
+  const end = cleaned.lastIndexOf("]");
+  if (start !== -1 && end > start) {
+    return tryParseArray(cleaned.slice(start, end + 1));
   }
-  if (!Array.isArray(data)) return null;
+  return null;
+}
+
+function parseGeminiCategoryResponse(text) {
+  const data = extractJSONArrayFromGeminiResponse(text);
+  if (!data) return null;
 
   return data
     .filter(item => item && typeof item.id === "string" && typeof item.category === "string" && item.category.trim())
@@ -2375,7 +2457,13 @@ function applyGeminiCategoryResults(results) {
 // 対象はGoogleマップリンク（url）または緯度経度（lat/lng）のどちらかが未設定のスポット。
 // 既に値がある項目は上書きしない（空欄埋めのみ）。緯度経度はハルシネーションのリスクが
 // あるため、既存のcheckPlaceLookupCoordinateMismatch（住所由来の都道府県と座標由来の
-// 最寄り都道府県の食い違いチェック）を通し、食い違う場合は反映せず警告のみに留める。
+// 最寄り都道府県の食い違いチェック）を通す。
+// 食い違いが見つかった場合の扱い（2026-07-28変更）：以前は反映せず警告のみに留めていたが、
+// これだと該当スポットはlat/lngが未設定のまま残り、次回以降の「リンク・緯度経度をGeminiで
+// 調べる」バッチにも毎回出てきてしまい、同じスポットを何度も調べ直す羽目になっていた
+// （ユーザー報告）。座標はいったん登録した上でplace.locationNeedsReview=trueを立てて隔離し、
+// 「リンク・緯度経度 要確認」モーダル（renderLocationReviewList等）から中身を確認して
+// 「確認OK」を押すとフラグが外れる方式に変更。
 const GEMINI_LOCATION_BATCH_SIZE = 50;
 // 現在プロンプトに含まれているバッチ（"適用する"時にどのidが対象かの参照用）
 let geminiLocationBatch = [];
@@ -2403,18 +2491,8 @@ function buildGeminiLocationPrompt(batchPlaces) {
 // 配列でない/JSONとして壊れている場合はnullを返す。url/lat/lngはすべて任意項目で、
 // 値がある場合のみ型・範囲をチェックして採用する（無ければ省略されたものとして扱う）。
 function parseGeminiLocationResponse(text) {
-  if (!text) return null;
-  let cleaned = text.trim();
-  const fenceMatch = cleaned.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-  if (fenceMatch) cleaned = fenceMatch[1].trim();
-
-  let data;
-  try {
-    data = JSON.parse(cleaned);
-  } catch (e) {
-    return null;
-  }
-  if (!Array.isArray(data)) return null;
+  const data = extractJSONArrayFromGeminiResponse(text);
+  if (!data) return null;
 
   return data
     .filter(item => item && typeof item.id === "string")
@@ -2431,8 +2509,8 @@ function parseGeminiLocationResponse(text) {
 }
 
 // パース済みの結果をplacesへ反映する（空欄埋めのみ、既存値は上書きしない）。
-// 実際に処理した各件について { id, name, urlApplied, coordsApplied, coordsSkippedReason } を返す
-// （呼び出し側がGeminiの回答内容そのものをUIへ表示できるように、件数だけでなく中身も渡す）。
+// 実際に処理した各件について { id, name, urlApplied, coordsApplied, coordsNeedsReview, coordsReviewReason }
+// を返す（呼び出し側がGeminiの回答内容そのものをUIへ表示できるように、件数だけでなく中身も渡す）。
 function applyGeminiLocationResults(results) {
   const applied = [];
   results.forEach(({ id, url, lat, lng }) => {
@@ -2446,21 +2524,102 @@ function applyGeminiLocationResults(results) {
     }
 
     let coordsApplied = false;
-    let coordsSkippedReason = null;
+    let coordsNeedsReview = false;
+    let coordsReviewReason = null;
     if (place.lat == null && place.lng == null && typeof lat === "number" && typeof lng === "number") {
       const mismatch = checkPlaceLookupCoordinateMismatch({ address: place.address, name: place.name, lat, lng });
+      place.lat = lat;
+      place.lng = lng;
+      coordsApplied = true;
       if (mismatch) {
-        coordsSkippedReason = mismatch;
-      } else {
-        place.lat = lat;
-        place.lng = lng;
-        coordsApplied = true;
+        place.locationNeedsReview = true;
+        place.locationReviewReason = mismatch;
+        coordsNeedsReview = true;
+        coordsReviewReason = mismatch;
       }
     }
 
-    applied.push({ id: place.id, name: place.name, urlApplied, coordsApplied, coordsSkippedReason });
+    applied.push({ id: place.id, name: place.name, urlApplied, coordsApplied, coordsNeedsReview, coordsReviewReason });
   });
   return applied;
+}
+
+// 「リンク・緯度経度 要確認」バッジ（ヘッダーのボタンに件数を表示）を最新の状態にする。
+function updateLocationReviewBadge() {
+  const badge = document.getElementById("location-review-count");
+  if (!badge) return;
+  const count = places.filter(p => p.locationNeedsReview).length;
+  badge.textContent = count > 0 ? `(${count})` : "";
+}
+
+// 要確認フラグの立ったスポット一覧を、削除済みスポット（ゴミ箱）モーダルと同じ
+// カード形式で描画する。「確認OK」でフラグのみ外す（座標・スポット自体は変更しない）。
+function renderLocationReviewList() {
+  const listEl = document.getElementById("location-review-list");
+  if (!listEl) return;
+  listEl.innerHTML = "";
+
+  const targets = places.filter(p => p.locationNeedsReview);
+  if (targets.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "unknown-spot-empty";
+    empty.textContent = "要確認のスポットはありません。";
+    listEl.appendChild(empty);
+    return;
+  }
+
+  targets.forEach(spot => {
+    const item = document.createElement("div");
+    item.className = "unknown-spot-item deleted-spot-item";
+
+    const info = document.createElement("div");
+    info.className = "unknown-spot-item-info";
+    const nameEl = document.createElement("strong");
+    nameEl.textContent = spot.name;
+    info.appendChild(nameEl);
+    const metaEl = document.createElement("span");
+    metaEl.textContent = [spot.address || "住所不明", spot.lat != null ? `${spot.lat}, ${spot.lng}` : "座標なし"].join(" / ");
+    info.appendChild(metaEl);
+    const reasonEl = document.createElement("span");
+    reasonEl.className = "place-lookup-candidate-warning";
+    reasonEl.textContent = `⚠️ ${spot.locationReviewReason || "座標が住所と食い違っている可能性があります"}`;
+    info.appendChild(reasonEl);
+    item.appendChild(info);
+
+    const actions = document.createElement("div");
+    actions.className = "deleted-spot-item-actions";
+
+    const confirmBtn = document.createElement("button");
+    confirmBtn.className = "btn btn-primary";
+    confirmBtn.type = "button";
+    confirmBtn.textContent = "確認OK";
+    confirmBtn.addEventListener("click", () => confirmLocationReview(spot.id));
+    actions.appendChild(confirmBtn);
+
+    item.appendChild(actions);
+    listEl.appendChild(item);
+  });
+}
+
+// 「確認OK」：座標・スポット自体は変更せず、要確認フラグのみ外す。
+function confirmLocationReview(id) {
+  const place = places.find(p => p.id === id);
+  if (!place) return;
+  place.locationNeedsReview = false;
+  place.locationReviewReason = null;
+  markUnsavedChanges();
+  scheduleLocalCacheWrite();
+  renderLocationReviewList();
+  updateLocationReviewBadge();
+}
+
+function openLocationReviewModal() {
+  renderLocationReviewList();
+  document.getElementById("location-review-overlay").classList.add("active");
+}
+
+function closeLocationReviewModal() {
+  document.getElementById("location-review-overlay").classList.remove("active");
 }
 
 // --- スポット情報のGemini検索（手動追加の補助、2026-07-24実装）---
@@ -2502,18 +2661,8 @@ function buildPlaceLookupPrompt(queries) {
 // Geminiの回答テキストをパースする。```json コードフェンス付きでも許容する。
 // 配列でない/JSONとして壊れている場合はnullを返す。緯度経度が数値でない候補は除外する。
 function parsePlaceLookupResponse(text) {
-  if (!text) return null;
-  let cleaned = text.trim();
-  const fenceMatch = cleaned.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-  if (fenceMatch) cleaned = fenceMatch[1].trim();
-
-  let data;
-  try {
-    data = JSON.parse(cleaned);
-  } catch (e) {
-    return null;
-  }
-  if (!Array.isArray(data)) return null;
+  const data = extractJSONArrayFromGeminiResponse(text);
+  if (!data) return null;
 
   return data
     .filter(item => item && typeof item.id === "string" && Array.isArray(item.candidates))
@@ -2922,6 +3071,7 @@ function filterAndRender() {
   renderTable(filtered);
   renderMapMarkers(filtered);
   renderCharts(filtered);
+  updateLocationReviewBadge();
 }
 
 // Render Stats Cards
@@ -2989,15 +3139,41 @@ function splitAddress(address) {
 function renderTable(filteredList) {
   const tbody = document.getElementById("places-table-body");
   const emptyState = document.getElementById("table-empty-state");
+  const paginationEl = document.getElementById("table-pagination");
   tbody.innerHTML = "";
 
   if (filteredList.length === 0) {
     emptyState.style.display = "flex";
+    if (paginationEl) paginationEl.style.display = "none";
     return;
   }
   emptyState.style.display = "none";
 
-  filteredList.forEach(p => {
+  // ページネーション（50件区切り）：絞り込み結果全体ではなく、このページ分だけを描画する。
+  // ページ番号は絞り込み・並び替えが変わるとfilterAndRenderFromPage1側で1に戻すが、
+  // それ以外（行の編集など）でfilterAndRender()が呼ばれた場合は現在のページを維持したいので、
+  // ここでは「範囲外なら丸める」だけに留める。
+  const totalPages = Math.max(1, Math.ceil(filteredList.length / TABLE_PAGE_SIZE));
+  if (currentTablePage > totalPages) currentTablePage = totalPages;
+  if (currentTablePage < 1) currentTablePage = 1;
+  const startIdx = (currentTablePage - 1) * TABLE_PAGE_SIZE;
+  const pageList = filteredList.slice(startIdx, startIdx + TABLE_PAGE_SIZE);
+
+  if (paginationEl) {
+    if (totalPages > 1) {
+      paginationEl.style.display = "flex";
+      const infoEl = document.getElementById("pagination-info");
+      const prevBtn = document.getElementById("pagination-prev");
+      const nextBtn = document.getElementById("pagination-next");
+      if (infoEl) infoEl.textContent = `${filteredList.length}件中 ${startIdx + 1}〜${startIdx + pageList.length}件（${currentTablePage} / ${totalPages}ページ）`;
+      if (prevBtn) prevBtn.disabled = currentTablePage <= 1;
+      if (nextBtn) nextBtn.disabled = currentTablePage >= totalPages;
+    } else {
+      paginationEl.style.display = "none";
+    }
+  }
+
+  pageList.forEach(p => {
     const tr = document.createElement("tr");
     
     // Name Column with link icon
@@ -3514,7 +3690,12 @@ function buildBackupJSONPayload(list = places) {
     updateTime: p.updateTime || "",
     coordinates: p.lat && p.lng ? { latitude: p.lat, longitude: p.lng } : null,
     googleMapsUrl: p.url,
-    source: p.source
+    source: p.source,
+    // 「リンク・緯度経度をGeminiで調べる」で座標が住所と食い違う疑いがあるまま登録された
+    // スポットの要確認フラグ。ロスレスなJSONバックアップでのみ保持する（CSVは他の
+    // Gemini由来フィールドと同様に非対応、4節参照）。
+    locationNeedsReview: p.locationNeedsReview || false,
+    locationReviewReason: p.locationReviewReason || null
   }));
 }
 
@@ -4180,5 +4361,5 @@ function loadSampleData() {
 
 // Expose pure logic functions for Node-based tests (no-op in the browser).
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { classifyCategory, extractPrefecture, parseAppBackupJSON, getAllCategories, customCategories, geminiCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, summarizeUnresolvedMyCategoryNames, getOrCreateGeminiCategory, buildGeminiCategoryPrompt, parseGeminiCategoryResponse, applyGeminiCategoryResults, getGeminiLocationIncompletePlaces, buildGeminiLocationPrompt, parseGeminiLocationResponse, applyGeminiLocationResults, parsePlaceLookupQueries, buildPlaceLookupPrompt, parsePlaceLookupResponse, checkPlaceLookupCoordinateMismatch, buildManualPlaceFieldsFromLookupCandidate, deduplicatePlaces, buildPlaceMatchKey, places, shouldScheduleLocalCacheWrite };
+  module.exports = { classifyCategory, extractPrefecture, parseAppBackupJSON, getAllCategories, customCategories, geminiCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, summarizeUnresolvedMyCategoryNames, getOrCreateGeminiCategory, buildGeminiCategoryPrompt, extractJSONArrayFromGeminiResponse, parseGeminiCategoryResponse, applyGeminiCategoryResults, getGeminiLocationIncompletePlaces, buildGeminiLocationPrompt, parseGeminiLocationResponse, applyGeminiLocationResults, parsePlaceLookupQueries, buildPlaceLookupPrompt, parsePlaceLookupResponse, checkPlaceLookupCoordinateMismatch, buildManualPlaceFieldsFromLookupCandidate, deduplicatePlaces, buildPlaceMatchKey, places, shouldScheduleLocalCacheWrite };
 }
