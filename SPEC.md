@@ -388,6 +388,7 @@ GitHub Pagesで不特定多数に公開すること自体はGitHubの規約上�
      - **`.app-details`をdashboard-sectionの後・フッターの前へ移動（2026-07-26）**：通常利用時（データ未読み込み〜読み込み後）に「詳しい説明」セクションがダッシュボードより上に来て既存の操作領域を押し下げていたため、DOM上の位置をdashboard-section直後・footer直前へ移動（内容・見出し・日英の説明・各リンクは変更なし。表示方法も通常表示のまま）。
        - **付随して見つかった不具合を修正**：この移動作業で、dashboard-grid（`#dashboard-section`）の直後に元から余分な`</div>`が1つ存在し、`.app-container`（`max-width:1600px; margin:0 auto; padding:2rem`を持つ最上位のレイアウトコンテナ）をそこで早期に閉じてしまっていたことが判明。結果として`.app-details`と`<footer>`が`.app-container`の外（`<body>`直下）に置かれ、コンテナの幅制限・余白・flexの`gap`を受けられない状態になっていた（実機のDOM調査で発覚。見た目には大きく破綻していなかったため気づかれていなかった）。余分な`</div>`を削除し、`.app-details`・`<footer>`とも`.app-container`の子として正しくネストされることを確認済み
      - 動作確認：未読込状態・データ読込後の両方で、`.app-container`の子要素の並び順が`header → header-actions → upload-section → dashboard-section → .app-details → footer`になっていること、`.app-details`が`display:none`・`<details>`内のいずれにも該当せず常に表示されることをブラウザ実機で確認済み。`node --check`・`npm test`（105件）はパス。`app.js`は今回も無変更
+   - **審査ステータス（2026-07-28時点）**：上記の対応後、Googleに人の目による確認（手動レビュー）を依頼済み。結果待ちの状態で、コード側でこれ以上できることは無い（自動チェックの指摘には一通り対応済み）。審査結果が来たら、指摘内容に応じて追加対応するか、通過していれば次項④のAdSense申請に進む
 4. **AdSenseによる広告収益化**：申請・審査（無料。振込は$100貯まってから、非居住者はW-8BEN提出が必要）→プライバシーポリシーへ広告/Cookie利用を追記→（EU圏配慮が必要なら）Cookie同意バナー→広告スクリプトの埋め込み
 5. **（任意）ストア配布**：Google Playストア登録（$25買い切り、PWAをTWA化）。Apple App Store（$99/年）は費用対効果が見合わないと判断し見送り
 
