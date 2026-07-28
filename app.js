@@ -403,7 +403,11 @@ function setupEventListeners() {
 
   // Filters and Search（絞り込み条件が変わったら1ページ目に戻す。データ編集時に
   // 呼ばれるfilterAndRender()は現在のページを維持したいため、ここだけ専用にする）
-  const filterAndRenderFromPage1 = () => { currentTablePage = 1; filterAndRender(); };
+  // 絞り込み条件が変わるたびに、各ドロップダウンの選択肢・件数も他の条件で絞った
+  // 状態へ再計算する（2026-07-28実装：段階的な絞り込みに対応するため。以前は
+  // setupDropdownFiltersがデータの変更時にしか呼ばれず、フィルターを変えても
+  // 他のドロップダウンの選択肢・件数が全件基準のまま更新されなかった）。
+  const filterAndRenderFromPage1 = () => { currentTablePage = 1; setupDropdownFilters(); filterAndRender(); };
   searchBox.addEventListener("input", filterAndRenderFromPage1);
   filterPref.addEventListener("change", filterAndRenderFromPage1);
   filterCatGoogle.addEventListener("change", filterAndRenderFromPage1);
@@ -3141,46 +3145,58 @@ function closeUnknownSpotModal() {
 }
 
 // Populate dropdown filters based on loaded data
+// 絞り込み行の各ドロップダウンの選択肢・件数を組み立てる（2026-07-28実装：段階的な
+// 絞り込みに対応）。「都道府県を福岡県に絞ったら、他のドロップダウンの選択肢・件数も
+// 福岡県基準に絞られてほしい」という要望を受けて、各ドロップダウンは自分自身の軸を
+// 除いた「他のすべてのアクティブな絞り込み条件」で絞った上で選択肢・件数を計算する
+// （placesMatchingFiltersExcept）。現在選択中の値は、絞り込んだ結果として件数が0に
+// なった場合でも選択肢として残す——そうしないと innerHTML再構築で選択肢自体が消え、
+// ユーザーが操作していないのに選択がサイレントに「すべて」へ戻ってしまう。
 function setupDropdownFilters() {
   const filterPref = document.getElementById("filter-prefecture");
   const filterCatGoogle = document.getElementById("filter-category-google");
   const filterCatMy = document.getElementById("filter-category-my");
+  const filterRating = document.getElementById("filter-rating");
   const filterWishlistList = document.getElementById("filter-wishlist-list");
 
-  // Save current selections
-  const currentPref = filterPref.value;
-  const currentCatGoogle = filterCatGoogle.value;
-  const currentCatMy = filterCatMy.value;
-  const currentWishlistList = filterWishlistList.value;
+  // 全ドロップダウンを書き換える前に、現在の絞り込み値を一度だけ読み取っておく
+  // （readCurrentFilterValues参照：先に書き換えたドロップダウンのDOM値が
+  // innerHTML再構築でリセットされ、後続の計算に混ざるのを防ぐため）。
+  const filterValues = readCurrentFilterValues();
+  const currentPref = filterValues.prefecture;
+  const currentCatGoogle = filterValues.catGoogle;
+  const currentCatMy = filterValues.catMy;
+  const currentRating = filterValues.rating;
+  const currentWishlistList = filterValues.wishlistList;
 
-  // Prefectures set
+  const allCats = getAllCategories();
+
+  // 都道府県：都道府県以外の条件で絞った上での選択肢・件数
+  const prefScope = placesMatchingFiltersExcept(filterValues, ["prefecture"]);
   const loadedPrefs = new Set();
-  places.forEach(p => loadedPrefs.add(getEffectivePrefecture(p)));
-  
-  // Sort them
+  prefScope.forEach(p => loadedPrefs.add(getEffectivePrefecture(p)));
+  if (currentPref) loadedPrefs.add(currentPref);
   const sortedPrefs = Array.from(loadedPrefs).sort((a, b) => {
     if (a === "その他・海外") return 1;
     if (b === "その他・海外") return -1;
     return PREFECTURES.indexOf(a) - PREFECTURES.indexOf(b);
   });
-
-  // Populate Prefectures dropdown
   filterPref.innerHTML = '<option value="">すべての都道府県</option>';
   sortedPrefs.forEach(pref => {
     const opt = document.createElement("option");
     opt.value = pref;
-    opt.textContent = `${pref} (${places.filter(p => getEffectivePrefecture(p) === pref).length})`;
+    const count = prefScope.filter(p => getEffectivePrefecture(p) === pref).length;
+    opt.textContent = `${pref} (${count})`;
     filterPref.appendChild(opt);
   });
 
-  // Populate category filters. Google連動とマイカテゴリーは別軸なので、それぞれ独立した
-  // ドロップダウンで絞り込めるようにする（両方指定した場合はAND条件）。
-  const allCats = getAllCategories();
-
-  // Google連動カテゴリー: p.categoryそのものを集計する（マイカテゴリーの上書きは考慮しない）
+  // Google連動カテゴリー：Google連動カテゴリー以外の条件で絞った上での選択肢・件数
+  // （p.categoryそのものを集計、マイカテゴリーの上書きは考慮しない）
+  const catGoogleScope = placesMatchingFiltersExcept(filterValues, ["catGoogle"]);
   filterCatGoogle.innerHTML = '<option value="">すべてのGoogle連動カテゴリー</option>';
   const googleCatCounts = {};
-  places.forEach(p => { googleCatCounts[p.category] = (googleCatCounts[p.category] || 0) + 1; });
+  catGoogleScope.forEach(p => { googleCatCounts[p.category] = (googleCatCounts[p.category] || 0) + 1; });
+  if (currentCatGoogle && !(currentCatGoogle in googleCatCounts)) googleCatCounts[currentCatGoogle] = 0;
   Object.entries(googleCatCounts)
     .sort((a, b) => b[1] - a[1])
     .forEach(([key, count]) => {
@@ -3190,17 +3206,20 @@ function setupDropdownFilters() {
       filterCatGoogle.appendChild(opt);
     });
 
-  // マイカテゴリー: 上書きされている行のみを対象にするが、「未設定」でも絞り込めるようにする
+  // マイカテゴリー：マイカテゴリー以外の条件で絞った上での選択肢・件数
+  // （上書きされている行のみを対象にするが、「未設定」でも絞り込めるようにする）
+  const catMyScope = placesMatchingFiltersExcept(filterValues, ["catMy"]);
   filterCatMy.innerHTML = '<option value="">すべてのマイカテゴリー</option>';
-  const unsetCount = places.filter(p => !p.myCategory).length;
-  if (unsetCount > 0) {
+  const unsetCount = catMyScope.filter(p => !p.myCategory).length;
+  if (unsetCount > 0 || currentCatMy === "__unset__") {
     const unsetOpt = document.createElement("option");
     unsetOpt.value = "__unset__";
     unsetOpt.textContent = `未設定 (${unsetCount})`;
     filterCatMy.appendChild(unsetOpt);
   }
   const myCatCounts = {};
-  places.forEach(p => { if (p.myCategory) myCatCounts[p.myCategory] = (myCatCounts[p.myCategory] || 0) + 1; });
+  catMyScope.forEach(p => { if (p.myCategory) myCatCounts[p.myCategory] = (myCatCounts[p.myCategory] || 0) + 1; });
+  if (currentCatMy && currentCatMy !== "__unset__" && !(currentCatMy in myCatCounts)) myCatCounts[currentCatMy] = 0;
   Object.entries(myCatCounts)
     .sort((a, b) => b[1] - a[1])
     .forEach(([key, count]) => {
@@ -3210,20 +3229,47 @@ function setupDropdownFilters() {
       filterCatMy.appendChild(opt);
     });
 
-  // Googleマップのカスタムリスト（「行ってみたい」等）で絞り込み。同じURLのクチコミと
-  // マージ済みでも wishlistListName は保護されて残るため、「実際に行った後」も引き続き
-  // このリストで絞り込める（2026-07-28実装）。リスト由来ではない行も「リスト由来ではない」
-  // で絞り込めるようにする（マイカテゴリーの「未設定」と同じ考え方）。
+  // 評価：評価以外の条件で絞った上での選択肢・件数（2026-07-28変更：以前は
+  // 「N以上」の閾値3択だったが、他の絞り込み軸と同じ「値ごとの件数を見て選ぶ」
+  // 完全一致の5択＋未評価に統一。「自分は★5を何件つけているか」が一目で分かる）。
+  const ratingScope = placesMatchingFiltersExcept(filterValues, ["rating"]);
+  filterRating.innerHTML = '<option value="">すべての評価</option>';
+  const unratedCount = ratingScope.filter(p => p.rating == null).length;
+  if (unratedCount > 0 || currentRating === "__unset__") {
+    const unratedOpt = document.createElement("option");
+    unratedOpt.value = "__unset__";
+    unratedOpt.textContent = `未評価 (${unratedCount})`;
+    filterRating.appendChild(unratedOpt);
+  }
+  const ratingCounts = {};
+  ratingScope.forEach(p => { if (p.rating != null) ratingCounts[p.rating] = (ratingCounts[p.rating] || 0) + 1; });
+  if (currentRating && currentRating !== "__unset__" && !(currentRating in ratingCounts)) ratingCounts[currentRating] = 0;
+  Object.keys(ratingCounts)
+    .sort((a, b) => b - a) // ★5→★1の順（件数ではなく評価の高さ順）
+    .forEach(stars => {
+      const opt = document.createElement("option");
+      opt.value = stars;
+      opt.textContent = `★${stars} (${ratingCounts[stars]})`;
+      filterRating.appendChild(opt);
+    });
+
+  // Googleマップのカスタムリスト（「行ってみたい」等）：この軸以外の条件で絞った上での
+  // 選択肢・件数。同じURLのクチコミとマージ済みでも wishlistListName は保護されて
+  // 残るため、「実際に行った後」も引き続きこのリストで絞り込める（2026-07-28実装）。
+  // リスト由来ではない行も「リスト由来ではない」で絞り込めるようにする
+  // （マイカテゴリーの「未設定」と同じ考え方）。
+  const wishlistScope = placesMatchingFiltersExcept(filterValues, ["wishlistList"]);
   filterWishlistList.innerHTML = '<option value="">すべて（リスト問わず）</option>';
-  const notFromListCount = places.filter(p => !p.wishlistListName).length;
-  if (notFromListCount > 0 && notFromListCount < places.length) {
+  const notFromListCount = wishlistScope.filter(p => !p.wishlistListName).length;
+  if ((notFromListCount > 0 && notFromListCount < wishlistScope.length) || currentWishlistList === "__none__") {
     const notFromListOpt = document.createElement("option");
     notFromListOpt.value = "__none__";
     notFromListOpt.textContent = `リスト由来ではない (${notFromListCount})`;
     filterWishlistList.appendChild(notFromListOpt);
   }
   const wishlistListCounts = {};
-  places.forEach(p => { if (p.wishlistListName) wishlistListCounts[p.wishlistListName] = (wishlistListCounts[p.wishlistListName] || 0) + 1; });
+  wishlistScope.forEach(p => { if (p.wishlistListName) wishlistListCounts[p.wishlistListName] = (wishlistListCounts[p.wishlistListName] || 0) + 1; });
+  if (currentWishlistList && currentWishlistList !== "__none__" && !(currentWishlistList in wishlistListCounts)) wishlistListCounts[currentWishlistList] = 0;
   Object.entries(wishlistListCounts)
     .sort((a, b) => b[1] - a[1])
     .forEach(([listName, count]) => {
@@ -3237,6 +3283,7 @@ function setupDropdownFilters() {
   filterPref.value = currentPref;
   filterCatGoogle.value = currentCatGoogle;
   filterCatMy.value = currentCatMy;
+  filterRating.value = currentRating;
   filterWishlistList.value = currentWishlistList;
 }
 
@@ -3257,35 +3304,65 @@ function matchesDateRange(dateStr, fromStr, toStr) {
   return true;
 }
 
-function filterAndRender() {
-  const searchVal = document.getElementById("search-box").value.toLowerCase();
-  const prefVal = document.getElementById("filter-prefecture").value;
-  const catGoogleVal = document.getElementById("filter-category-google").value;
-  const catMyVal = document.getElementById("filter-category-my").value;
-  const minRating = document.getElementById("filter-rating").value ? parseInt(document.getElementById("filter-rating").value) : null;
-  const wishlistListVal = document.getElementById("filter-wishlist-list").value;
-  const dateFrom = document.getElementById("filter-date-from").value; // "YYYY-MM-DD" or ""
-  const dateTo = document.getElementById("filter-date-to").value;
+// 絞り込み行の現在の入力値をまとめて読み取る（2026-07-28実装）。setupDropdownFiltersが
+// 各ドロップダウンの選択肢・件数を「他の条件で絞り込んだ上で」計算する際、値を
+// その都度document.getElementByIdで読み直すと、先に書き換えた別のドロップダウンの
+// 選択状態がinnerHTML再構築で一時的にクリアされてしまい、後続の計算に古い/空の値が
+// 混ざる。そのため呼び出し側で一度だけ読み取り、以降はこのスナップショットを使い回す。
+function readCurrentFilterValues() {
+  return {
+    search: document.getElementById("search-box").value.toLowerCase(),
+    prefecture: document.getElementById("filter-prefecture").value,
+    catGoogle: document.getElementById("filter-category-google").value,
+    catMy: document.getElementById("filter-category-my").value,
+    rating: document.getElementById("filter-rating").value, // "" | "1"〜"5" | "__unset__"
+    wishlistList: document.getElementById("filter-wishlist-list").value,
+    dateFrom: document.getElementById("filter-date-from").value, // "YYYY-MM-DD" or ""
+    dateTo: document.getElementById("filter-date-to").value
+  };
+}
 
-  // Filter
-  let filtered = places.filter(p => {
-    const matchSearch = !searchVal ||
-                        p.name.toLowerCase().includes(searchVal) ||
-                        p.address.toLowerCase().includes(searchVal) ||
-                        p.comment.toLowerCase().includes(searchVal);
-    const matchPref = !prefVal || getEffectivePrefecture(p) === prefVal;
+// 絞り込み行の各軸ごとの判定関数を、渡された値のスナップショットから組み立てる。
+// filterAndRenderの絞り込みと、setupDropdownFiltersの「他の軸を絞り込んだ上での
+// 件数計算」の両方で共有する（2026-07-28実装）。
+function buildFilterMatchersFromValues(v) {
+  return {
+    search: p => !v.search ||
+                 p.name.toLowerCase().includes(v.search) ||
+                 p.address.toLowerCase().includes(v.search) ||
+                 p.comment.toLowerCase().includes(v.search),
+    prefecture: p => !v.prefecture || getEffectivePrefecture(p) === v.prefecture,
     // Google連動とマイカテゴリーは別軸の絞り込み（両方指定した場合はAND）
-    const matchCatGoogle = !catGoogleVal || p.category === catGoogleVal;
-    const matchCatMy = !catMyVal || (catMyVal === "__unset__" ? !p.myCategory : p.myCategory === catMyVal);
-    const matchRating = !minRating || (p.rating && p.rating >= minRating);
+    catGoogle: p => !v.catGoogle || p.category === v.catGoogle,
+    catMy: p => !v.catMy || (v.catMy === "__unset__" ? !p.myCategory : p.myCategory === v.catMy),
+    // 評価は「未評価」を含む完全一致（2026-07-28変更：以前は「N以上」の閾値だったが、
+    // 他の絞り込み軸と同じ「値ごとに件数を見て選ぶ」形に統一した）。
+    rating: p => !v.rating || (v.rating === "__unset__" ? p.rating == null : p.rating === parseInt(v.rating, 10)),
     // Googleマップのカスタムリスト（「行ってみたい」等）で絞り込み（2026-07-28実装）
-    const matchWishlistList = !wishlistListVal || (wishlistListVal === "__none__" ? !p.wishlistListName : p.wishlistListName === wishlistListVal);
+    wishlistList: p => !v.wishlistList || (v.wishlistList === "__none__" ? !p.wishlistListName : p.wishlistListName === v.wishlistList),
     // 「最終更新日」列・ソートと同じくpublishTimeを見る（Google Takeoutは真の初回投稿日を
     // 出力せず、この日付が編集のたびに更新されて返ってくるため。2026-07-26に一度updateTime
     // 側に直したが、実データではupdateTimeがほぼ空で誤りだったため巻き戻した。詳細はSPEC.md）。
-    const matchDate = matchesDateRange(p.publishTime, dateFrom, dateTo);
-    return matchSearch && matchPref && matchCatGoogle && matchCatMy && matchRating && matchWishlistList && matchDate;
-  });
+    date: p => matchesDateRange(p.publishTime, v.dateFrom, v.dateTo)
+  };
+}
+
+// 指定した軸（excludeKeys）以外の、現在アクティブな絞り込み条件をすべて満たすplacesを
+// 返す。各ドロップダウンの選択肢・件数を「他の条件で絞り込んだ上で」段階的に狭めて
+// 表示するために使う（自分自身の軸は除外し、その軸内で選び直せるようにする。
+// 2026-07-28実装）。
+function placesMatchingFiltersExcept(values, excludeKeys) {
+  const matchers = buildFilterMatchersFromValues(values);
+  const activeKeys = Object.keys(matchers).filter(k => !excludeKeys.includes(k));
+  return places.filter(p => activeKeys.every(k => matchers[k](p)));
+}
+
+function filterAndRender() {
+  const filterValues = readCurrentFilterValues();
+  const matchers = buildFilterMatchersFromValues(filterValues);
+
+  // Filter
+  let filtered = places.filter(p => Object.values(matchers).every(fn => fn(p)));
 
   // Sort
   filtered.sort((a, b) => {
@@ -4630,5 +4707,5 @@ function loadSampleData() {
 
 // Expose pure logic functions for Node-based tests (no-op in the browser).
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { classifyCategory, extractPrefecture, parseAppBackupJSON, getAllCategories, customCategories, geminiCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, summarizeUnresolvedMyCategoryNames, getOrCreateGeminiCategory, buildGeminiCategoryPrompt, extractJSONArrayFromGeminiResponse, parseGeminiCategoryResponse, applyGeminiCategoryResults, getGeminiLocationIncompletePlaces, buildGeminiLocationPrompt, parseGeminiLocationResponse, applyGeminiLocationResults, parsePlaceLookupQueries, buildPlaceLookupPrompt, parsePlaceLookupResponse, checkPlaceLookupCoordinateMismatch, buildManualPlaceFieldsFromLookupCandidate, deduplicatePlaces, buildPlaceMatchKey, isSavedListCSV, parseSavedListCSV, places, shouldScheduleLocalCacheWrite };
+  module.exports = { classifyCategory, extractPrefecture, parseAppBackupJSON, getAllCategories, customCategories, geminiCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, summarizeUnresolvedMyCategoryNames, getOrCreateGeminiCategory, buildGeminiCategoryPrompt, extractJSONArrayFromGeminiResponse, parseGeminiCategoryResponse, applyGeminiCategoryResults, getGeminiLocationIncompletePlaces, buildGeminiLocationPrompt, parseGeminiLocationResponse, applyGeminiLocationResults, parsePlaceLookupQueries, buildPlaceLookupPrompt, parsePlaceLookupResponse, checkPlaceLookupCoordinateMismatch, buildManualPlaceFieldsFromLookupCandidate, deduplicatePlaces, buildPlaceMatchKey, isSavedListCSV, parseSavedListCSV, buildFilterMatchersFromValues, placesMatchingFiltersExcept, places, shouldScheduleLocalCacheWrite };
 }
