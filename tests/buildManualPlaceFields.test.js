@@ -43,3 +43,13 @@ test("評価やコメントが未指定なら null/空文字にフォールバ�
   assert.equal(fields.url, "");
   assert.equal(fields.publishTime, "");
 });
+
+test("「行ってみたい」チェックが入っていればwishlistListNameを立てる（2026-07-28実装）", () => {
+  const fields = buildManualPlaceFields({ name: "気になる店", wishlist: true });
+  assert.equal(fields.wishlistListName, "行ってみたい");
+});
+
+test("「行ってみたい」チェックが無ければwishlistListNameはnullのまま", () => {
+  const fields = buildManualPlaceFields({ name: "普通のログ", wishlist: false });
+  assert.equal(fields.wishlistListName, null);
+});

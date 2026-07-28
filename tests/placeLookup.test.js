@@ -140,3 +140,15 @@ test("buildManualPlaceFieldsFromLookupCandidate: 評価未指定はnullのまま
   const fields = buildManualPlaceFieldsFromLookupCandidate(candidate, null);
   assert.equal(fields.rating, null);
 });
+
+test("buildManualPlaceFieldsFromLookupCandidate: 第3引数（行ってみたい）がtrueならwishlistListNameを立てる（2026-07-28実装）", () => {
+  const candidate = { name: "テスト神社", address: "東京都渋谷区1-1", lat: 35.6, lng: 139.7, category: "" };
+  const fields = buildManualPlaceFieldsFromLookupCandidate(candidate, null, true);
+  assert.equal(fields.wishlistListName, "行ってみたい");
+});
+
+test("buildManualPlaceFieldsFromLookupCandidate: 第3引数未指定はwishlistListNameがnullのまま", () => {
+  const candidate = { name: "テスト神社", address: "東京都渋谷区1-1", lat: 35.6, lng: 139.7, category: "" };
+  const fields = buildManualPlaceFieldsFromLookupCandidate(candidate, 5);
+  assert.equal(fields.wishlistListName, null);
+});

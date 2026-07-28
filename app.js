@@ -548,7 +548,7 @@ function setupEventListeners() {
       return;
     }
     const applied = applyGeminiLocationResults(results);
-    if (applied.some(item => item.urlApplied || item.coordsApplied)) markUnsavedChanges();
+    if (applied.some(item => item.urlApplied || item.addressApplied || item.coordsApplied)) markUnsavedChanges();
     responseEl.value = "";
     setupDropdownFilters();
     filterAndRender();
@@ -572,6 +572,7 @@ function setupEventListeners() {
         const li = document.createElement("li");
         const parts = [];
         if (item.urlApplied) parts.push("リンクを反映");
+        if (item.addressApplied) parts.push("住所を反映");
         if (item.coordsNeedsReview) parts.push(`緯度経度を反映（⚠️ 要確認: ${item.coordsReviewReason}）`);
         else if (item.coordsApplied) parts.push("緯度経度を反映");
         if (parts.length === 0) parts.push("反映できる項目がありませんでした");
@@ -719,7 +720,8 @@ function setupEventListeners() {
       comment: document.getElementById("manual-comment").value.trim(),
       url: document.getElementById("manual-url").value.trim(),
       publishTime: dateVal ? dateVal.replace(/-/g, "/") : "",
-      coordinateText: document.getElementById("manual-coords").value
+      coordinateText: document.getElementById("manual-coords").value,
+      wishlist: document.getElementById("manual-wishlist").checked
     };
 
     if (editingManualPlaceId) {
@@ -841,6 +843,7 @@ function openManualAdd(place) {
     document.getElementById("manual-url").value = place.url || "";
     document.getElementById("manual-date").value = place.publishTime ? place.publishTime.replace(/\//g, "-") : "";
     document.getElementById("manual-coords").value = (place.lat && place.lng) ? `${place.lat}, ${place.lng}` : "";
+    document.getElementById("manual-wishlist").checked = !!place.wishlistListName;
     title.textContent = "ログを編集";
     submitBtn.innerHTML = '<i data-lucide="save"></i> 保存する';
   } else {
@@ -2064,7 +2067,11 @@ function buildManualPlaceFields(input) {
     comment: comment,
     url: input.url || "",
     publishTime: input.publishTime || "",
-    updateTime: input.publishTime || ""
+    updateTime: input.publishTime || "",
+    // 「行ってみたい」チェックボックス（2026-07-28実装）。編集時はチェック状態がそのまま
+    // 反映されるため、外せば通常のログに戻せる（既存のwishlistMemo等はここで触れないため
+    // 別経路のCSV由来の値があれば保持される、Object.assignで上書きされるのはこのキーのみ）。
+    wishlistListName: input.wishlist ? "行ってみたい" : null
   };
 }
 
@@ -2567,13 +2574,22 @@ function getGeminiLocationIncompletePlaces() {
 }
 
 function buildGeminiLocationPrompt(batchPlaces) {
-  const items = batchPlaces.map(p => ({ id: p.id, name: p.name, address: p.address || "" }));
+  // 「行ってみたい」リストCSV取り込み由来のスポットは、名前と一緒に本物のGoogleマップ
+  // リンク（knownUrl）が既に分かっている（住所・緯度経度だけが未設定）。名前だけから
+  // 推測させるより、そのリンク先が指す実際の場所の情報を使わせた方が正確なため、
+  // knownUrlがある項目はそれも手がかりとして渡す（2026-07-28実装）。
+  const items = batchPlaces.map(p => {
+    const item = { id: p.id, name: p.name, address: p.address || "" };
+    if (p.url) item.knownUrl = p.url;
+    return item;
+  });
   return [
     "以下は日本国内外のスポット（店舗・施設）の名前と住所のリストです。",
-    "それぞれについて、Googleマップ上のそのスポットのリンク（URL）と、緯度・経度を調べてください。",
+    "knownUrlが含まれている項目は、そのGoogleマップのリンク先が指す実際のスポットの情報を優先して使ってください。",
+    "それぞれについて、Googleマップ上のそのスポットのリンク（URL。knownUrlがあれば通常はそれと同じでよい）と、緯度・経度、まだ住所が空欄の項目は判明していれば住所（addressキー、都道府県から始まる形式）も調べてください。",
     "確信が持てない項目は無理に埋めず、該当するキー自体を省略してください（不正確な値を返すよりは省略を優先してください）。",
     "出力は説明文を一切含めず、以下の形式のJSON配列のみを返してください（コードブロックも不要です）。",
-    '[{"id": "対象と同じid", "url": "https://maps.google.com/?q=...", "lat": 35.6586, "lng": 139.7454}, ...]',
+    '[{"id": "対象と同じid", "url": "https://maps.google.com/?q=...", "lat": 35.6586, "lng": 139.7454, "address": "東京都渋谷区..."}, ...]',
     "",
     "対象リスト:",
     JSON.stringify(items, null, 2)
@@ -2597,6 +2613,7 @@ function parseGeminiLocationResponse(text) {
         result.lat = item.lat;
         result.lng = item.lng;
       }
+      if (typeof item.address === "string" && item.address.trim()) result.address = item.address.trim();
       return result;
     });
 }
@@ -2606,7 +2623,7 @@ function parseGeminiLocationResponse(text) {
 // を返す（呼び出し側がGeminiの回答内容そのものをUIへ表示できるように、件数だけでなく中身も渡す）。
 function applyGeminiLocationResults(results) {
   const applied = [];
-  results.forEach(({ id, url, lat, lng }) => {
+  results.forEach(({ id, url, lat, lng, address }) => {
     const place = places.find(p => p.id === id);
     if (!place) return;
 
@@ -2616,11 +2633,22 @@ function applyGeminiLocationResults(results) {
       urlApplied = true;
     }
 
+    // 住所も空欄埋めのみで反映する（「行ってみたい」リストCSV由来のスポット等、
+    // 住所が元から無いケースを主に想定。2026-07-28実装）。
+    let addressApplied = false;
+    if (!place.address && address) {
+      place.address = address;
+      addressApplied = true;
+    }
+
     let coordsApplied = false;
     let coordsNeedsReview = false;
     let coordsReviewReason = null;
     if (place.lat == null && place.lng == null && typeof lat === "number" && typeof lng === "number") {
-      const mismatch = checkPlaceLookupCoordinateMismatch({ address: place.address, name: place.name, lat, lng });
+      // 住所が既存に無く今回の回答で新しく分かった場合は、そちらをハルシネーション
+      // チェックにも使う（従来は既存の住所が空だとチェックが必ず素通りしていた）。
+      const effectiveAddress = place.address || address || "";
+      const mismatch = checkPlaceLookupCoordinateMismatch({ address: effectiveAddress, name: place.name, lat, lng });
       place.lat = lat;
       place.lng = lng;
       coordsApplied = true;
@@ -2632,7 +2660,14 @@ function applyGeminiLocationResults(results) {
       }
     }
 
-    applied.push({ id: place.id, name: place.name, urlApplied, coordsApplied, coordsNeedsReview, coordsReviewReason });
+    // 住所・座標のどちらかが今回新しく分かった場合、都道府県が未確定（既定値の
+    // 「その他・海外」）のままなら再判定する。既に確定済みの都道府県は触らない。
+    if ((addressApplied || coordsApplied) && place.prefecture === "その他・海外") {
+      const newPref = extractPrefecture(place.address, place.name, place.lat, place.lng);
+      if (newPref !== "その他・海外") place.prefecture = newPref;
+    }
+
+    applied.push({ id: place.id, name: place.name, urlApplied, addressApplied, coordsApplied, coordsNeedsReview, coordsReviewReason });
   });
   return applied;
 }
@@ -2807,7 +2842,7 @@ function checkPlaceLookupCoordinateMismatch(candidate) {
 // 既存の編集フローで書き足す運用を想定。評価だけは候補カード上で選んでから追加できる
 // （2026-07-25追加：Geminiは実際に行ったかどうかや感想までは分からないが、評価は
 // 追加のタイミングでまとめて選べた方が後から一覧を開き直す手間がないというユーザー要望）。
-function buildManualPlaceFieldsFromLookupCandidate(candidate, rating) {
+function buildManualPlaceFieldsFromLookupCandidate(candidate, rating, wishlist) {
   return {
     name: candidate.name,
     address: candidate.address,
@@ -2820,14 +2855,17 @@ function buildManualPlaceFieldsFromLookupCandidate(candidate, rating) {
     comment: "",
     url: "",
     publishTime: "",
-    updateTime: ""
+    updateTime: "",
+    // 「行ってみたい（未訪問）」チェックボックス（2026-07-28実装）。手動追加フォームと
+    // 同じくwishlistListName="行ってみたい"で表現する（3節データモデル参照）。
+    wishlistListName: wishlist ? "行ってみたい" : null
   };
 }
 
-function addManualPlaceFromLookupCandidate(candidate, rating) {
+function addManualPlaceFromLookupCandidate(candidate, rating, wishlist) {
   const newPlace = {
     id: `manual-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-    ...buildManualPlaceFieldsFromLookupCandidate(candidate, rating),
+    ...buildManualPlaceFieldsFromLookupCandidate(candidate, rating, wishlist),
     myPrefecture: null,
     myCategory: null,
     source: "手動入力"
@@ -2902,13 +2940,23 @@ function renderPlaceLookupResults(results) {
       `;
       card.appendChild(ratingSelect);
 
+      // 「行ってみたい（未訪問）」チェックボックス（2026-07-28実装）。まだ行っていない
+      // 場所の候補もこの検索から見つけて登録しておきたい、という要望を受けて追加。
+      const wishlistLabel = document.createElement("label");
+      wishlistLabel.className = "place-lookup-candidate-wishlist";
+      const wishlistCheckbox = document.createElement("input");
+      wishlistCheckbox.type = "checkbox";
+      wishlistLabel.appendChild(wishlistCheckbox);
+      wishlistLabel.appendChild(document.createTextNode("行ってみたい"));
+      card.appendChild(wishlistLabel);
+
       const addBtn = document.createElement("button");
       addBtn.className = "btn btn-primary";
       addBtn.type = "button";
       addBtn.textContent = "これを追加する";
       addBtn.addEventListener("click", () => {
         const rating = ratingSelect.value ? parseInt(ratingSelect.value) : null;
-        addManualPlaceFromLookupCandidate(candidate, rating);
+        addManualPlaceFromLookupCandidate(candidate, rating, wishlistCheckbox.checked);
         markUnsavedChanges();
         block.innerHTML = "";
         const doneMsg = document.createElement("p");

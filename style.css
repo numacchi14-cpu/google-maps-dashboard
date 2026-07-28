@@ -1549,6 +1549,18 @@ tr:hover td {
   line-height: 1.5;
 }
 
+/* 「行ってみたい」として追加するチェックボックス（2026-07-28実装）。ログの手動追加・
+   スポット検索候補のどちらから登録しても、評価/コメントが無い＝未訪問の状態を
+   一貫してwishlistListName="行ってみたい"で表現する（3節データモデル参照）。 */
+.manual-add-wishlist-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
 .modal-divider {
   border: none;
   border-top: 1px solid var(--border-color);
@@ -1717,6 +1729,17 @@ tr:hover td {
 
 .place-lookup-candidate-warning {
   color: #f59e0b;
+}
+
+.place-lookup-candidate-wishlist {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  cursor: pointer;
 }
 
 .place-lookup-candidate .btn {
