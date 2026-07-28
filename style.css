@@ -1221,6 +1221,19 @@ tr:hover td {
   cursor: help;
 }
 
+/* 「行ってみたい」等のカスタムリストにあった場所に実際に行った（評価/クチコミが揃った）
+   場合のバッジ（2026-07-28実装）。 */
+.wishlist-fulfilled-badge {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  margin-left: 4px;
+  color: #22c55e;
+  cursor: help;
+  vertical-align: middle;
+  display: inline-block;
+}
+
 /* List empty state */
 .empty-state {
   display: flex;

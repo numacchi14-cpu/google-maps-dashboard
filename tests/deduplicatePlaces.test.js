@@ -155,6 +155,67 @@ test("URL・緯度経度のどちらも無い（名前＋住所のみ一致の�
   assert.equal(result[0].updateTime, "2026/03/01");
 });
 
+test("「行ってみたい」等のリスト由来レコードが、後から来た同一URLのクチコミとマージされ、両方の情報が1レコードに統合される（2026-07-28実装）", () => {
+  const wishlistEntry = basePlace({
+    source: "行きたいリスト",
+    address: "",
+    lat: null,
+    lng: null,
+    prefecture: "その他・海外",
+    rating: null,
+    comment: "",
+    publishTime: "",
+    updateTime: "",
+    wishlistListName: "行ってみたい",
+    wishlistMemo: "友達がおすすめしてた",
+    wishlistTags: "気になる",
+    wishlistComment: "そのうち行く"
+  });
+  const review = basePlace({
+    comment: "実際に行ってみたら最高だった",
+    rating: 5,
+    publishTime: "2026/06/01"
+  });
+
+  const result = deduplicatePlaces([wishlistEntry, review]);
+
+  assert.equal(result.length, 1);
+  // クチコミ側のデータ（新しいpublishTime）が追従上書きで反映される
+  assert.equal(result[0].comment, "実際に行ってみたら最高だった");
+  assert.equal(result[0].rating, 5);
+  assert.equal(result[0].address, "東京都渋谷区1-1-1");
+  // 行ってみたい由来のフィールドは失われず保護される
+  assert.equal(result[0].wishlistListName, "行ってみたい");
+  assert.equal(result[0].wishlistMemo, "友達がおすすめしてた");
+  assert.equal(result[0].wishlistTags, "気になる");
+  assert.equal(result[0].wishlistComment, "そのうち行く");
+});
+
+test("逆順（クチコミが先、行ってみたいリストが後）でも、行ってみたい由来のフィールドが空欄埋めで反映される", () => {
+  const review = basePlace({ wishlistListName: null, wishlistMemo: null, wishlistTags: null, wishlistComment: null });
+  const wishlistEntry = basePlace({
+    source: "行きたいリスト",
+    rating: null,
+    comment: "",
+    publishTime: "",
+    updateTime: "",
+    wishlistListName: "行ってみたい",
+    wishlistMemo: "友達がおすすめしてた",
+    wishlistTags: "気になる",
+    wishlistComment: "そのうち行く"
+  });
+
+  const result = deduplicatePlaces([review, wishlistEntry]);
+
+  assert.equal(result.length, 1);
+  // 既存（クチコミ側）のrating/commentは上書きされない
+  assert.equal(result[0].rating, 4);
+  assert.equal(result[0].comment, "美味しかった");
+  // 行ってみたい由来のフィールドは空欄埋めで反映される
+  assert.equal(result[0].wishlistListName, "行ってみたい");
+  assert.equal(result[0].wishlistMemo, "友達がおすすめしてた");
+});
+
 test("URLが一致しない場合は別レコードとして扱う（重複排除しない）", () => {
   const a = basePlace({ url: "https://maps.google.com/?cid=1" });
   const b = basePlace({ id: "id2", url: "https://maps.google.com/?cid=2" });

@@ -298,6 +298,7 @@ function setupEventListeners() {
   const filterCatGoogle = document.getElementById("filter-category-google");
   const filterCatMy = document.getElementById("filter-category-my");
   const filterRating = document.getElementById("filter-rating");
+  const filterWishlistList = document.getElementById("filter-wishlist-list");
   const filterDateFrom = document.getElementById("filter-date-from");
   const filterDateTo = document.getElementById("filter-date-to");
   const btnExportCsv = document.getElementById("btn-export-csv");
@@ -408,6 +409,7 @@ function setupEventListeners() {
   filterCatGoogle.addEventListener("change", filterAndRenderFromPage1);
   filterCatMy.addEventListener("change", filterAndRenderFromPage1);
   filterRating.addEventListener("change", filterAndRenderFromPage1);
+  filterWishlistList.addEventListener("change", filterAndRenderFromPage1);
   filterDateFrom.addEventListener("change", filterAndRenderFromPage1);
   filterDateTo.addEventListener("change", filterAndRenderFromPage1);
 
@@ -1127,6 +1129,7 @@ function resetApp() {
     document.getElementById("filter-category-google").value = "";
     document.getElementById("filter-category-my").value = "";
     document.getElementById("filter-rating").value = "";
+    document.getElementById("filter-wishlist-list").value = "";
     document.getElementById("filter-date-from").value = "";
     document.getElementById("filter-date-to").value = "";
 
@@ -1188,6 +1191,16 @@ async function handleFiles(files) {
               manualAdded += result.addedCount;
               manualUpdated += result.updatedCount;
             }
+            continue;
+          }
+
+          // Googleマップのカスタムリスト（「行ってみたい」等）のTakeout CSV。ファイル名
+          // （拡張子を除いたもの）がそのままGoogleマップ上のリスト名なので、それを
+          // wishlistListNameとして各レコードに持たせる（2026-07-28実装）。
+          if (isSavedListCSV(rows)) {
+            const listName = file.name.replace(/\.csv$/i, "");
+            const savedListPlaces = parseSavedListCSV(rows, listName);
+            newPlaces = newPlaces.concat(savedListPlaces);
             continue;
           }
         }
@@ -1706,7 +1719,11 @@ function parseAppBackupJSON(json) {
       publishTime: item.publishTime || "",
       updateTime: item.updateTime || "",
       locationNeedsReview: item.locationNeedsReview || false,
-      locationReviewReason: item.locationReviewReason || null
+      locationReviewReason: item.locationReviewReason || null,
+      wishlistListName: item.wishlistListName || null,
+      wishlistMemo: item.wishlistMemo || null,
+      wishlistTags: item.wishlistTags || null,
+      wishlistComment: item.wishlistComment || null
     };
   });
 }
@@ -1880,6 +1897,73 @@ function parseCSVData(csvText) {
       source: "CSVインポート",
       publishTime: publishTime,
       updateTime: updateTime
+    });
+  }
+
+  return parsed;
+}
+
+// --- Googleマップのカスタムリスト（「行ってみたい」等）CSVの取り込み（2026-07-28実装）---
+// Google Takeoutの「保存済みの場所」フォルダには、Saved places.json（全件）とは別に、
+// ユーザーが作成したカスタムリストがリスト名そのままのファイル名のCSVとして個別に含まれる
+// （例: 行ってみたい.csv）。ヘッダーは「タイトル,メモ,URL,タグ,コメント」固定で、住所・
+// 緯度経度・評価は一切含まれない。上のparseCSVDataは名前列判定が英語"title"のみを見ており
+// 「タイトル」という表記にはマッチしないため、そのままではこのCSVは1件も取り込めなかった。
+function isSavedListCSV(rows) {
+  if (rows.length === 0) return false;
+  const headers = rows[0].map(h => h.trim());
+  const hasTitle = headers.some(h => /^タイトル$/.test(h));
+  const hasUrl = headers.some(h => /url|link|リンク/i.test(h));
+  const hasAddressOrCoords = headers.some(h => /address|location|住所|所在地|lat|latitude|緯度|lng|lon|longitude|経度/i.test(h));
+  return hasTitle && hasUrl && !hasAddressOrCoords;
+}
+
+// 上記のカスタムリストCSVをplace形状のレコードへ変換する。住所・緯度経度が無いため
+// 都道府県は「その他・海外」・カテゴリーは店名のみからのヒューリスティック判定になる
+// （後日クチコミ等が同じURLで取り込まれれば、deduplicatePlacesの追従上書きにより
+// 正しい住所・カテゴリー・評価へ自動的に置き換わる）。listNameは呼び出し元（handleFiles）
+// がCSVのファイル名（拡張子を除いたもの＝Googleマップ上のリスト名そのもの）を渡す。
+// メモ・タグ・コメントは既存のcomment（クチコミ本文）とは別物としてwishlistMemo/
+// wishlistTags/wishlistCommentに保持する（同じ場所が「クチコミ投稿」等で既に登録済みの
+// 場合も、既存のcommentを上書きしてしまわないようにするため）。
+function parseSavedListCSV(rows, listName) {
+  const parsed = [];
+  if (rows.length < 2) return parsed;
+
+  const headers = rows[0];
+  const nameIdx = headers.findIndex(h => /^タイトル$/.test(h.trim()));
+  const urlIdx = headers.findIndex(h => /url|link|リンク/i.test(h));
+  const memoIdx = headers.findIndex(h => /^メモ$/.test(h.trim()));
+  const tagsIdx = headers.findIndex(h => /^タグ$/.test(h.trim()));
+  const commentIdx = headers.findIndex(h => /^コメント$/.test(h.trim()));
+
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    const name = csvField(row, nameIdx) || "不明なスポット";
+    const url = csvField(row, urlIdx);
+    if (!url && name === "不明なスポット") continue;
+
+    parsed.push({
+      id: `savedlist-${Date.now()}-${i}-${Math.random().toString(36).substr(2, 5)}`,
+      name: name,
+      address: "",
+      lat: null,
+      lng: null,
+      prefecture: "その他・海外",
+      category: classifyCategory(name, ""),
+      googleCategoryRaw: null,
+      myPrefecture: null,
+      myCategory: null,
+      rating: null,
+      comment: "",
+      url: url,
+      source: "行きたいリスト",
+      publishTime: "",
+      updateTime: "",
+      wishlistListName: listName || null,
+      wishlistMemo: csvField(row, memoIdx),
+      wishlistTags: csvField(row, tagsIdx),
+      wishlistComment: csvField(row, commentIdx)
     });
   }
 
@@ -2101,6 +2185,15 @@ function deduplicatePlaces(list) {
       // （Google側の更新日に関わらず、フレッシュな取り込みで上書きされることはない）。
       if (!existing.myPrefecture && item.myPrefecture) existing.myPrefecture = item.myPrefecture;
       if (!existing.myCategory && item.myCategory) existing.myCategory = item.myCategory;
+
+      // 「行ってみたい」等のカスタムリスト由来フィールドも、新旧判定に関わらず
+      // 常に「既存が空欄の場合のみ埋め合わせ」で保護する。行きたいリストで先に取り込んだ後
+      // クチコミが後から来ても（あるいは逆順でも）、両方の情報が1レコードに統合される
+      // （2026-07-28実装。詳細はSPEC.md参照）。
+      if (!existing.wishlistListName && item.wishlistListName) existing.wishlistListName = item.wishlistListName;
+      if (!existing.wishlistMemo && item.wishlistMemo) existing.wishlistMemo = item.wishlistMemo;
+      if (!existing.wishlistTags && item.wishlistTags) existing.wishlistTags = item.wishlistTags;
+      if (!existing.wishlistComment && item.wishlistComment) existing.wishlistComment = item.wishlistComment;
     }
   });
 
@@ -2919,11 +3012,13 @@ function setupDropdownFilters() {
   const filterPref = document.getElementById("filter-prefecture");
   const filterCatGoogle = document.getElementById("filter-category-google");
   const filterCatMy = document.getElementById("filter-category-my");
+  const filterWishlistList = document.getElementById("filter-wishlist-list");
 
   // Save current selections
   const currentPref = filterPref.value;
   const currentCatGoogle = filterCatGoogle.value;
   const currentCatMy = filterCatMy.value;
+  const currentWishlistList = filterWishlistList.value;
 
   // Prefectures set
   const loadedPrefs = new Set();
@@ -2982,10 +3077,34 @@ function setupDropdownFilters() {
       filterCatMy.appendChild(opt);
     });
 
+  // Googleマップのカスタムリスト（「行ってみたい」等）で絞り込み。同じURLのクチコミと
+  // マージ済みでも wishlistListName は保護されて残るため、「実際に行った後」も引き続き
+  // このリストで絞り込める（2026-07-28実装）。リスト由来ではない行も「リスト由来ではない」
+  // で絞り込めるようにする（マイカテゴリーの「未設定」と同じ考え方）。
+  filterWishlistList.innerHTML = '<option value="">すべて（リスト問わず）</option>';
+  const notFromListCount = places.filter(p => !p.wishlistListName).length;
+  if (notFromListCount > 0 && notFromListCount < places.length) {
+    const notFromListOpt = document.createElement("option");
+    notFromListOpt.value = "__none__";
+    notFromListOpt.textContent = `リスト由来ではない (${notFromListCount})`;
+    filterWishlistList.appendChild(notFromListOpt);
+  }
+  const wishlistListCounts = {};
+  places.forEach(p => { if (p.wishlistListName) wishlistListCounts[p.wishlistListName] = (wishlistListCounts[p.wishlistListName] || 0) + 1; });
+  Object.entries(wishlistListCounts)
+    .sort((a, b) => b[1] - a[1])
+    .forEach(([listName, count]) => {
+      const opt = document.createElement("option");
+      opt.value = listName;
+      opt.textContent = `${listName} (${count})`;
+      filterWishlistList.appendChild(opt);
+    });
+
   // Restore selection
   filterPref.value = currentPref;
   filterCatGoogle.value = currentCatGoogle;
   filterCatMy.value = currentCatMy;
+  filterWishlistList.value = currentWishlistList;
 }
 
 // Filter, Sort, and Render UI
@@ -3011,6 +3130,7 @@ function filterAndRender() {
   const catGoogleVal = document.getElementById("filter-category-google").value;
   const catMyVal = document.getElementById("filter-category-my").value;
   const minRating = document.getElementById("filter-rating").value ? parseInt(document.getElementById("filter-rating").value) : null;
+  const wishlistListVal = document.getElementById("filter-wishlist-list").value;
   const dateFrom = document.getElementById("filter-date-from").value; // "YYYY-MM-DD" or ""
   const dateTo = document.getElementById("filter-date-to").value;
 
@@ -3025,11 +3145,13 @@ function filterAndRender() {
     const matchCatGoogle = !catGoogleVal || p.category === catGoogleVal;
     const matchCatMy = !catMyVal || (catMyVal === "__unset__" ? !p.myCategory : p.myCategory === catMyVal);
     const matchRating = !minRating || (p.rating && p.rating >= minRating);
+    // Googleマップのカスタムリスト（「行ってみたい」等）で絞り込み（2026-07-28実装）
+    const matchWishlistList = !wishlistListVal || (wishlistListVal === "__none__" ? !p.wishlistListName : p.wishlistListName === wishlistListVal);
     // 「最終更新日」列・ソートと同じくpublishTimeを見る（Google Takeoutは真の初回投稿日を
     // 出力せず、この日付が編集のたびに更新されて返ってくるため。2026-07-26に一度updateTime
     // 側に直したが、実データではupdateTimeがほぼ空で誤りだったため巻き戻した。詳細はSPEC.md）。
     const matchDate = matchesDateRange(p.publishTime, dateFrom, dateTo);
-    return matchSearch && matchPref && matchCatGoogle && matchCatMy && matchRating && matchDate;
+    return matchSearch && matchPref && matchCatGoogle && matchCatMy && matchRating && matchWishlistList && matchDate;
   });
 
   // Sort
@@ -3179,10 +3301,15 @@ function renderTable(filteredList) {
     // Name Column with link icon
     const nameTd = document.createElement("td");
     nameTd.className = "col-name";
+    // 「行ってみたい」等のカスタムリストにあった場所に、実際に行った（評価/クチコミが
+    // ある）場合のバッジ（2026-07-28実装）。deduplicatePlacesのマージでwishlistListNameと
+    // rating/commentが1レコードに揃って初めて表示される。
+    const wishlistFulfilled = p.wishlistListName && (p.rating != null || p.comment);
     nameTd.innerHTML = `
       <div class="cell-scrollable">
         ${p.url ? `<a href="${p.url}" target="_blank" class="maps-link-btn" title="Googleマップで開く"><i data-lucide="external-link" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;display:inline-block;"></i></a>` : ''}
         <span title="${p.name}">${p.name}</span>
+        ${wishlistFulfilled ? `<i data-lucide="badge-check" class="wishlist-fulfilled-badge" title="「${p.wishlistListName}」リストにあった場所に実際に行きました"></i>` : ''}
       </div>
     `;
 
@@ -3695,7 +3822,13 @@ function buildBackupJSONPayload(list = places) {
     // スポットの要確認フラグ。ロスレスなJSONバックアップでのみ保持する（CSVは他の
     // Gemini由来フィールドと同様に非対応、4節参照）。
     locationNeedsReview: p.locationNeedsReview || false,
-    locationReviewReason: p.locationReviewReason || null
+    locationReviewReason: p.locationReviewReason || null,
+    // Googleマップのカスタムリスト（「行ってみたい」等）由来のフィールド。CSVフルエクスポート
+    // には含めない（他のGemini由来フィールドと同じ「JSONのみロスレス」方針、4節参照）。
+    wishlistListName: p.wishlistListName || null,
+    wishlistMemo: p.wishlistMemo || null,
+    wishlistTags: p.wishlistTags || null,
+    wishlistComment: p.wishlistComment || null
   }));
 }
 
@@ -4361,5 +4494,5 @@ function loadSampleData() {
 
 // Expose pure logic functions for Node-based tests (no-op in the browser).
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { classifyCategory, extractPrefecture, parseAppBackupJSON, getAllCategories, customCategories, geminiCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, summarizeUnresolvedMyCategoryNames, getOrCreateGeminiCategory, buildGeminiCategoryPrompt, extractJSONArrayFromGeminiResponse, parseGeminiCategoryResponse, applyGeminiCategoryResults, getGeminiLocationIncompletePlaces, buildGeminiLocationPrompt, parseGeminiLocationResponse, applyGeminiLocationResults, parsePlaceLookupQueries, buildPlaceLookupPrompt, parsePlaceLookupResponse, checkPlaceLookupCoordinateMismatch, buildManualPlaceFieldsFromLookupCandidate, deduplicatePlaces, buildPlaceMatchKey, places, shouldScheduleLocalCacheWrite };
+  module.exports = { classifyCategory, extractPrefecture, parseAppBackupJSON, getAllCategories, customCategories, geminiCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, summarizeUnresolvedMyCategoryNames, getOrCreateGeminiCategory, buildGeminiCategoryPrompt, extractJSONArrayFromGeminiResponse, parseGeminiCategoryResponse, applyGeminiCategoryResults, getGeminiLocationIncompletePlaces, buildGeminiLocationPrompt, parseGeminiLocationResponse, applyGeminiLocationResults, parsePlaceLookupQueries, buildPlaceLookupPrompt, parsePlaceLookupResponse, checkPlaceLookupCoordinateMismatch, buildManualPlaceFieldsFromLookupCandidate, deduplicatePlaces, buildPlaceMatchKey, isSavedListCSV, parseSavedListCSV, places, shouldScheduleLocalCacheWrite };
 }
