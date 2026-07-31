@@ -1,4 +1,4 @@
-// Spotlog Service Worker — caches the app shell only (index.html/app.js/style.css/
+// スポット帖 Service Worker — caches the app shell only (index.html/app.js/style.css/
 // manifest/icons/privacy/help). Leaflet, Chart.js, Lucide and the Google Fonts CSS
 // are still loaded from their CDNs at runtime and are NOT cached here, so the app
 // still needs a network connection for map/chart/icon rendering (see SPEC.md §4,

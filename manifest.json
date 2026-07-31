@@ -1,6 +1,6 @@
 {
-  "name": "Spotlog",
-  "short_name": "Spotlog",
+  "name": "スポット帖",
+  "short_name": "スポット帖",
   "description": "Googleマップの「保存済みの場所」「クチコミ」データを取り込み、都道府県別・カテゴリー別に可視化するツール",
   "start_url": "/",
   "scope": "/",

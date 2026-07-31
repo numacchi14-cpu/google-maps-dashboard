@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Spotlog</title>
-  <meta name="application-name" content="Spotlog">
-  <meta name="description" content="Spotlogは、Google TakeoutでダウンロードしたGoogleマップの「保存済みの場所」「クチコミ」データを取り込み、都道府県別・カテゴリー別に一覧・地図・グラフで可視化する無料の個人向けツールです。データ処理はすべてブラウザ内で完結します。">
-  <meta property="og:site_name" content="Spotlog">
-  <meta property="og:title" content="Spotlog">
+  <title>スポット帖</title>
+  <meta name="application-name" content="スポット帖">
+  <meta name="description" content="スポット帖は、Google TakeoutでダウンロードしたGoogleマップの「保存済みの場所」「クチコミ」データを取り込み、都道府県別・カテゴリー別に一覧・地図・グラフで可視化する無料の個人向けツールです。データ処理はすべてブラウザ内で完結します。">
+  <meta property="og:site_name" content="スポット帖">
+  <meta property="og:title" content="スポット帖">
   <meta property="og:description" content="Googleマップの「保存済みの場所」「クチコミ」データを取り込み、都道府県別・カテゴリー別に可視化する無料ツール">
 
   <!-- PWA: manifest, icons, theme color -->
@@ -17,7 +17,7 @@
   <meta name="theme-color" content="#0b0f19">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Spotlog">
+  <meta name="apple-mobile-web-app-title" content="スポット帖">
 
   <!-- Leaflet CSS for Map -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -38,18 +38,18 @@
         <!-- OAuth審査用のコンパクトな要約カード。Drive連携ボタンより前、ファーストビュー内に
              収まる分量だけを残す（詳しい説明は下の.app-detailsセクションへ移動済み）。 -->
         <div class="hero-card">
-          <h1>Spotlog</h1>
+          <h1>スポット帖</h1>
           <p class="hero-lead">
-            Spotlogは、Googleマップに保存した場所や投稿したクチコミなど、利用者自身の記録を整理・可視化する個人向けWebアプリです。
+            スポット帖は、Googleマップに保存した場所や投稿したクチコミなど、利用者自身の記録を整理・可視化する個人向けWebアプリです。
           </p>
           <ul class="hero-drive-facts">
             <li>Googleドライブ連携は任意です</li>
-            <li><code>drive.file</code>を、Spotlogが作成するバックアップの保存・読み込みだけに使用します</li>
+            <li><code>drive.file</code>を、スポット帖が作成するバックアップの保存・読み込みだけに使用します</li>
             <li>Google Drive全体、氏名、メールアドレス、プロフィールへはアクセスしません</li>
           </ul>
           <p class="hero-en" lang="en">
-            Spotlog is a personal app for organizing your own Google Maps records.
-            Optional Google Drive integration uses the drive.file scope only for Spotlog's own backup file.
+            スポット帖 (Spot-cho) is a personal app for organizing your own Google Maps records.
+            Optional Google Drive integration uses the drive.file scope only for the app's own backup file.
           </p>
           <p class="hero-privacy-link"><a href="privacy.html">プライバシーポリシー</a></p>
         </div>
@@ -348,7 +348,7 @@
          フッターの前に常時DOMとして存在させる。データの有無で分岐させず、
          display:none/タブ/モーダル/閉じたdetailsにも入れない） -->
     <section class="app-details">
-      <h2>Spotlogについて（詳しい説明）</h2>
+      <h2>スポット帖について（詳しい説明）</h2>
       <p>
         NUM-ISH運営者の菱沼政彦が個人で開発・運営しています。
         通常のデータ処理は利用者のブラウザ内で行われ、運営者が管理するサーバーへ送信されることはありません。
@@ -363,19 +363,19 @@
       <ul>
         <li>Googleドライブ連携は任意</li>
         <li>使用する権限は<code>drive.file</code>のみ</li>
-        <li>Spotlogが作成するバックアップファイルを、利用者自身のGoogleドライブへ保存・読み込みするためだけに使用</li>
+        <li>スポット帖が作成するバックアップファイルを、利用者自身のGoogleドライブへ保存・読み込みするためだけに使用</li>
         <li>Google Drive全体へのアクセス権は要求しない</li>
         <li>氏名、メールアドレス、プロフィール情報は取得しない</li>
         <li>広告利用、データ販売、目的外の第三者提供は行わない</li>
       </ul>
-      <p>Spotlogは、Google LLCまたはGoogleの関連会社が提供・運営するサービスではありません。</p>
+      <p>スポット帖は、Google LLCまたはGoogleの関連会社が提供・運営するサービスではありません。</p>
 
-      <h2 lang="en">About Spotlog and Google Drive Integration</h2>
+      <h2 lang="en">About スポット帖 (Spot-cho) and Google Drive Integration</h2>
       <p lang="en">
-        Spotlog is a personal web application that helps users organize and
+        スポット帖 (Spot-cho) is a personal web application that helps users organize and
         visualize their own Google Maps records. Optional Google Drive integration
         uses the drive.file scope only to save and restore the backup file created
-        by Spotlog. Spotlog does not request access to the user's entire Google Drive.
+        by the app. The app does not request access to the user's entire Google Drive.
       </p>
 
       <p class="app-about-links">
