@@ -708,13 +708,13 @@ function setupEventListeners() {
     if (currentTablePage > 1) {
       currentTablePage--;
       filterAndRender();
-      document.querySelector(".table-card").scrollIntoView({ block: "start" });
+      scrollTableToTop();
     }
   });
   paginationNext.addEventListener("click", () => {
     currentTablePage++;
     filterAndRender();
-    document.querySelector(".table-card").scrollIntoView({ block: "start" });
+    scrollTableToTop();
   });
 
   // カテゴリー比率チャートの集計軸切り替え（Google連動 / マイカテゴリー）
@@ -2135,11 +2135,21 @@ function addManualPlace(input) {
 // an existing record). マイ都道府県/マイカテゴリーは触れない — only the
 // Google連動 axis (prefecture/category) is recomputed from the edited name/address.
 function updateManualPlaceFields(place, input) {
+  const previousWishlistListName = place.wishlistListName;
   Object.assign(place, buildManualPlaceFields(input));
   // Keep the Gemini/Places由来の生カテゴリーと表示用category の対応を保つ
   // （編集で名前/住所が変わってもclassifyCategoryへ巻き戻さない）。
   if (place.googleCategoryRaw) {
     place.category = getOrCreateGeminiCategory(place.googleCategoryRaw);
+  }
+  // 「行ってみたい」チェックボックスは汎用の"行ってみたい"にしか対応していないため
+  // （buildManualPlaceFields参照）、編集フォームが全行対応になったこと（2026-08-01）で
+  // Googleマップのカスタムリスト由来の固有のリスト名（例:「今度行きたい店」）を持つ行を
+  // チェックON状態のまま保存すると、その固有名が汎用ラベルに上書きされて絞り込み
+  // ドロップダウンの集計が変わってしまう。チェックが入ったままの場合は元のリスト名を
+  // 保持する（チェックを外して明示的に解除した場合はbuildManualPlaceFields側でnullになる）。
+  if (input.wishlist && previousWishlistListName) {
+    place.wishlistListName = previousWishlistListName;
   }
 }
 
@@ -3977,6 +3987,21 @@ function splitAddress(address) {
   return { line1: address, line2: "" };
 }
 
+// ページ切り替え後に一覧の先頭（スポット名列の1行目）が見える位置までスクロールする
+// （2026-08-01修正）。デスクトップでは`.table-wrapper`が独自のスクロール領域
+// （max-height:550px; overflow-y:auto;）を持つため、`.table-card`自体をscrollIntoView
+// してもページ全体はカードの上端（見出し・絞り込み行）まで動くだけで、テーブル内部の
+// スクロール位置（前のページで下の方まで見ていた場合の位置）はリセットされず、切り替え後も
+// 最初の行が隠れたままになっていた（ユーザー報告：PCだと一番上の店舗まで行かない）。
+// モバイル（768px以下）は`.table-wrapper`のmax-height/overflow-yが解除されページ全体が
+// 1つのスクロール領域になるため、この内部スクロールが存在せず問題が起きていなかった。
+function scrollTableToTop() {
+  const wrapper = document.querySelector(".table-wrapper");
+  if (wrapper) wrapper.scrollTop = 0;
+  const card = document.querySelector(".table-card");
+  if (card) card.scrollIntoView({ block: "start" });
+}
+
 // Render Places Table
 function renderTable(filteredList) {
   const tbody = document.getElementById("places-table-body");
@@ -4232,7 +4257,7 @@ function renderTable(filteredList) {
     actTd.innerHTML = `
       <div style="display:flex;gap:8px;">
         ${p.lat && p.lng ? `<button class="btn btn-locate" style="padding:4px 8px;font-size:0.75rem;" title="地図の中心に表示"><i data-lucide="map-pin" style="width:12px;height:12px;"></i></button>` : ''}
-        ${p.source === "手動入力" ? `<button class="btn btn-edit-manual" style="padding:4px 8px;font-size:0.75rem;" title="編集"><i data-lucide="pencil" style="width:12px;height:12px;"></i></button>` : ''}
+        <button class="btn btn-edit-manual" style="padding:4px 8px;font-size:0.75rem;" title="編集（Geminiや自動判定の内容がおかしい場合の手直しにも使えます）"><i data-lucide="pencil" style="width:12px;height:12px;"></i></button>
         <button class="btn btn-delete" style="padding:4px 8px;font-size:0.75rem;background:rgba(239,68,68,0.1);color:#ef4444;border-color:rgba(239,68,68,0.2);" title="削除"><i data-lucide="trash" style="width:12px;height:12px;"></i></button>
       </div>
     `;
@@ -4253,12 +4278,13 @@ function renderTable(filteredList) {
       });
     }
 
-    // Edit listener (手動入力 entries only, re-opens the manual-add modal prefilled)
-    if (p.source === "手動入力") {
-      actTd.querySelector(".btn-edit-manual").addEventListener("click", () => {
-        openManualAdd(p);
-      });
-    }
+    // Edit listener（2026-08-01からソースを問わず全行に表示。以前は手動入力のみだったが、
+    // Gemini取得（カテゴリー・リンク緯度経度・スポット検索）や自動判定の内容が間違っていた
+    // 場合に手直しできる手段が無いという要望を受けて全行対応にした。フォーム自体は
+    // 既存の値をプリフィルするため、触れなかった項目はそのまま維持される）
+    actTd.querySelector(".btn-edit-manual").addEventListener("click", () => {
+      openManualAdd(p);
+    });
 
     // Delete listener（ゴミ箱送り。「削除済みスポット」から復元・完全削除できる）
     actTd.querySelector(".btn-delete").addEventListener("click", () => {
@@ -5246,5 +5272,5 @@ function loadSampleData() {
 
 // Expose pure logic functions for Node-based tests (no-op in the browser).
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { classifyCategory, extractPrefecture, parseAppBackupJSON, getAllCategories, customCategories, geminiCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, summarizeUnresolvedMyCategoryNames, getOrCreateGeminiCategory, buildGeminiCategoryPrompt, extractJSONArrayFromGeminiResponse, parseGeminiCategoryResponse, applyGeminiCategoryResults, getGeminiLocationIncompletePlaces, markLocationRetryPriority, isLocationLookupStillNeeded, buildGeminiLocationPrompt, parseGeminiLocationResponse, applyGeminiLocationResults, parsePlaceLookupQueries, buildPlaceLookupPrompt, parsePlaceLookupResponse, checkPlaceLookupCoordinateMismatch, buildManualPlaceFieldsFromLookupCandidate, deduplicatePlaces, buildPlaceMatchKey, isSavedListCSV, parseSavedListCSV, buildFilterMatchersFromValues, placesMatchingFiltersExcept, findPossibleDuplicates, normalizeAddressForCompare, places, shouldScheduleLocalCacheWrite };
+  module.exports = { classifyCategory, extractPrefecture, parseAppBackupJSON, getAllCategories, customCategories, geminiCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, updateManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, summarizeUnresolvedMyCategoryNames, getOrCreateGeminiCategory, buildGeminiCategoryPrompt, extractJSONArrayFromGeminiResponse, parseGeminiCategoryResponse, applyGeminiCategoryResults, getGeminiLocationIncompletePlaces, markLocationRetryPriority, isLocationLookupStillNeeded, buildGeminiLocationPrompt, parseGeminiLocationResponse, applyGeminiLocationResults, parsePlaceLookupQueries, buildPlaceLookupPrompt, parsePlaceLookupResponse, checkPlaceLookupCoordinateMismatch, buildManualPlaceFieldsFromLookupCandidate, deduplicatePlaces, buildPlaceMatchKey, isSavedListCSV, parseSavedListCSV, buildFilterMatchersFromValues, placesMatchingFiltersExcept, findPossibleDuplicates, normalizeAddressForCompare, places, shouldScheduleLocalCacheWrite };
 }

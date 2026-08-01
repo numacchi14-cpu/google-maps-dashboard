@@ -3,7 +3,7 @@ global.document = { addEventListener() {} };
 
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { buildManualPlaceFields } = require("../app.js");
+const { buildManualPlaceFields, updateManualPlaceFields } = require("../app.js");
 
 test("名前・住所からカテゴリー・都道府県を自動判定する", () => {
   const fields = buildManualPlaceFields({
@@ -52,4 +52,25 @@ test("「行ってみたい」チェックが入っていればwishlistListName�
 test("「行ってみたい」チェックが無ければwishlistListNameはnullのまま", () => {
   const fields = buildManualPlaceFields({ name: "普通のログ", wishlist: false });
   assert.equal(fields.wishlistListName, null);
+});
+
+test("updateManualPlaceFields: 編集フォームが全行対応になったことに伴う回帰確認（2026-08-01）。" +
+  "Googleマップのカスタムリスト由来の固有リスト名は、チェックが入ったままの編集では汎用ラベルに" +
+  "上書きされず保持される（チェックボックスは常に「行ってみたい」固定文字列にしか対応していないため）", () => {
+  const place = {
+    name: "今度行きたい店",
+    wishlistListName: "今度行きたい店リスト",
+    wishlistMemo: "友達に勧められた",
+    wishlistTags: null,
+    wishlistComment: null
+  };
+
+  updateManualPlaceFields(place, { name: "今度行きたい店", wishlist: true });
+  assert.equal(place.wishlistListName, "今度行きたい店リスト");
+});
+
+test("updateManualPlaceFields: チェックを外して明示的に解除した場合はnullになる", () => {
+  const place = { name: "今度行きたい店", wishlistListName: "今度行きたい店リスト" };
+  updateManualPlaceFields(place, { name: "今度行きたい店", wishlist: false });
+  assert.equal(place.wishlistListName, null);
 });
