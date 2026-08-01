@@ -137,6 +137,39 @@ test("myCategoryKeyがgemini_始まりの場合は、myCategoryNameからGoogle�
   assert.equal(getAllCategories()["gemini_ラーメン店"].name, "ラーメン店");
 });
 
+test("要確認モーダルの確認済みフラグ（locationReviewAcknowledged/locationLookupAcknowledged）を復元する（2026-08-01追加。以前はlocationLookupAcknowledgedがエクスポートされておらず再読込で確認済み状態が失われていた）", () => {
+  const backup = [
+    {
+      name: "座標確認済みの店",
+      categoryKey: "other",
+      locationNeedsReview: true,
+      locationReviewReason: "住所は福岡県、座標は東京都",
+      locationReviewAcknowledged: true,
+      comment: ""
+    },
+    {
+      name: "Gemini未検出で確認済みの店",
+      categoryKey: "other",
+      locationLookupSkipped: true,
+      locationLookupAcknowledged: true,
+      comment: ""
+    },
+    {
+      name: "フラグ未設定の店",
+      categoryKey: "other",
+      comment: ""
+    }
+  ];
+
+  const [reviewed, skipped, untouched] = parseAppBackupJSON(backup);
+  assert.equal(reviewed.locationNeedsReview, true);
+  assert.equal(reviewed.locationReviewAcknowledged, true);
+  assert.equal(skipped.locationLookupSkipped, true);
+  assert.equal(skipped.locationLookupAcknowledged, true);
+  assert.equal(untouched.locationReviewAcknowledged, false);
+  assert.equal(untouched.locationLookupAcknowledged, false);
+});
+
 test("バックアップが参照する自作マイカテゴリー（標準の12種にないキー）を再登録して復元する", () => {
   const backup = [{
     name: "自作カテゴリーを付けた店",

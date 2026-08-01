@@ -1754,7 +1754,9 @@ function parseAppBackupJSON(json) {
       updateTime: item.updateTime || "",
       locationNeedsReview: item.locationNeedsReview || false,
       locationReviewReason: item.locationReviewReason || null,
+      locationReviewAcknowledged: item.locationReviewAcknowledged || false,
       locationLookupSkipped: item.locationLookupSkipped || false,
+      locationLookupAcknowledged: item.locationLookupAcknowledged || false,
       wishlistListName: item.wishlistListName || null,
       wishlistMemo: item.wishlistMemo || null,
       wishlistTags: item.wishlistTags || null,
@@ -2793,26 +2795,34 @@ function updateLocationReviewBadge() {
   if (!badge) return;
   // 座標の食い違いで要確認になったもの、Geminiが見つけられず自動バッチから除外された
   // ものの両方を合わせて件数表示する（2026-07-28、後者を追加）。後者はisLocationLookupStillNeeded
-  // で実際にまだ空欄があるかも確認し、確認OKで確認済みにした項目も除外する（2026-08-01）。
-  const count = places.filter(p => p.locationNeedsReview ||
+  // で実際にまだ空欄があるかも確認し、いずれも確認OKで確認済みにした項目は除外する
+  // （2026-08-01。前者はlocationReviewAcknowledged、後者はlocationLookupAcknowledged）。
+  const count = places.filter(p => (p.locationNeedsReview && !p.locationReviewAcknowledged) ||
     (p.locationLookupSkipped && !p.locationLookupAcknowledged && isLocationLookupStillNeeded(p))).length;
   badge.textContent = count > 0 ? `(${count})` : "";
 }
 
 // 要確認フラグの立ったスポット一覧を、削除済みスポット（ゴミ箱）モーダルと同じ
 // カード形式で描画する。2種類を扱う（2026-07-28、後者を追加）：
-// ① 座標の食い違い（locationNeedsReview）：「確認OK」でフラグのみ外す（座標は変更しない）
+// ① 座標の食い違い（locationNeedsReview）：「確認OK」で確認済みフラグ（locationReviewAcknowledged）
+//    を立てて一覧から外す（座標は変更しない）
 // ② Geminiが見つけられず自動バッチから除外中（locationLookupSkipped）：
-//    「もう一度調べる対象に含める」でフラグを外し、次回のバッチに戻す
+//    「もう一度調べる対象に含める」でフラグを外し、次回のバッチに戻す。「確認OK」を押すと
+//    確認済みフラグ（locationLookupAcknowledged）が立って一覧から外れる
+// ①②とも「確認OK」は誤って押しても取り消せるよう、下部の「確認済み」セクションに
+// 「取り消し」ボタン付きで一覧表示する（2026-08-01追加。誤操作で戻せなかったという報告を受けて対応）
 function renderLocationReviewList() {
   const listEl = document.getElementById("location-review-list");
   if (!listEl) return;
   listEl.innerHTML = "";
 
-  const reviewTargets = places.filter(p => p.locationNeedsReview);
+  const reviewTargets = places.filter(p => p.locationNeedsReview && !p.locationReviewAcknowledged);
   const skippedTargets = places.filter(p => p.locationLookupSkipped && !p.locationLookupAcknowledged && isLocationLookupStillNeeded(p));
+  const reviewAcknowledged = places.filter(p => p.locationNeedsReview && p.locationReviewAcknowledged);
+  const skippedAcknowledged = places.filter(p => p.locationLookupSkipped && p.locationLookupAcknowledged && isLocationLookupStillNeeded(p));
 
-  if (reviewTargets.length === 0 && skippedTargets.length === 0) {
+  if (reviewTargets.length === 0 && skippedTargets.length === 0 &&
+      reviewAcknowledged.length === 0 && skippedAcknowledged.length === 0) {
     const empty = document.createElement("p");
     empty.className = "unknown-spot-empty";
     empty.textContent = "要確認のスポットはありません。";
@@ -2915,6 +2925,67 @@ function renderLocationReviewList() {
       listEl.appendChild(item);
     });
   }
+
+  if (reviewAcknowledged.length > 0 || skippedAcknowledged.length > 0) {
+    const heading = document.createElement("p");
+    heading.className = "gemini-cat-result-heading";
+    heading.textContent = "確認済み（誤って「確認OK」を押した場合はここから取り消せます）";
+    listEl.appendChild(heading);
+
+    reviewAcknowledged.forEach(spot => {
+      const item = document.createElement("div");
+      item.className = "unknown-spot-item deleted-spot-item";
+
+      const info = document.createElement("div");
+      info.className = "unknown-spot-item-info";
+      const nameEl = document.createElement("strong");
+      nameEl.textContent = spot.name;
+      info.appendChild(nameEl);
+      const metaEl = document.createElement("span");
+      metaEl.textContent = spot.address || "住所不明";
+      info.appendChild(metaEl);
+      item.appendChild(info);
+
+      const actions = document.createElement("div");
+      actions.className = "deleted-spot-item-actions";
+      const undoBtn = document.createElement("button");
+      undoBtn.className = "btn";
+      undoBtn.type = "button";
+      undoBtn.textContent = "取り消し（座標の確認が必要に戻す）";
+      undoBtn.addEventListener("click", () => undoConfirmLocationReview(spot.id));
+      actions.appendChild(undoBtn);
+      item.appendChild(actions);
+
+      listEl.appendChild(item);
+    });
+
+    skippedAcknowledged.forEach(spot => {
+      const item = document.createElement("div");
+      item.className = "unknown-spot-item deleted-spot-item";
+
+      const info = document.createElement("div");
+      info.className = "unknown-spot-item-info";
+      const nameEl = document.createElement("strong");
+      nameEl.textContent = spot.name;
+      info.appendChild(nameEl);
+      const metaEl = document.createElement("span");
+      metaEl.textContent = spot.address || "住所不明";
+      info.appendChild(metaEl);
+      item.appendChild(info);
+
+      const actions = document.createElement("div");
+      actions.className = "deleted-spot-item-actions";
+      const undoBtn = document.createElement("button");
+      undoBtn.className = "btn";
+      undoBtn.type = "button";
+      undoBtn.textContent = "取り消し（一覧に戻す）";
+      undoBtn.addEventListener("click", () => undoConfirmLocationSkipped(spot.id));
+      actions.appendChild(undoBtn);
+      item.appendChild(actions);
+
+      listEl.appendChild(item);
+    });
+  }
 }
 
 // リンク・緯度経度 要確認モーダルの各カードに、Googleマップのリンクが既にあれば
@@ -2931,12 +3002,29 @@ function appendGoogleMapsLinkButton(actionsEl, spot) {
   actionsEl.appendChild(linkBtn);
 }
 
-// 「確認OK」：座標・スポット自体は変更せず、要確認フラグのみ外す。
+// 「確認OK」：座標・スポット自体は変更せず、確認済みフラグ（locationReviewAcknowledged）
+// を立てて一覧・バッジから外す（2026-08-01変更）。以前はlocationNeedsReview/
+// locationReviewReasonを直接クリアしていたため、誤って押すと元に戻す手段が無かった
+// （ユーザー報告：不具合修正のテスト中に誤って押してしまい、取り消せなかった）。
+// フラグ自体は残したまま「確認済み」として扱うことで、下記のundoConfirmLocationReview
+// でいつでも「座標の確認が必要」一覧へ戻せるようにした。
 function confirmLocationReview(id) {
   const place = places.find(p => p.id === id);
   if (!place) return;
-  place.locationNeedsReview = false;
-  place.locationReviewReason = null;
+  place.locationReviewAcknowledged = true;
+  markUnsavedChanges();
+  scheduleLocalCacheWrite();
+  renderLocationReviewList();
+  updateLocationReviewBadge();
+}
+
+// 上記「確認OK」の取り消し（2026-08-01追加）：確認済みフラグだけを外し、再び
+// 「座標の確認が必要」一覧・バッジに戻す。座標・理由は確認OK時から変更していないため
+// そのまま復元される。
+function undoConfirmLocationReview(id) {
+  const place = places.find(p => p.id === id);
+  if (!place) return;
+  place.locationReviewAcknowledged = false;
   markUnsavedChanges();
   scheduleLocalCacheWrite();
   renderLocationReviewList();
@@ -2956,6 +3044,7 @@ function retryLocationReview(id) {
   place.lng = null;
   place.locationNeedsReview = false;
   place.locationReviewReason = null;
+  place.locationReviewAcknowledged = false;
   markLocationRetryPriority(id);
   markUnsavedChanges();
   scheduleLocalCacheWrite();
@@ -2986,6 +3075,19 @@ function confirmLocationSkipped(id) {
   const place = places.find(p => p.id === id);
   if (!place) return;
   place.locationLookupAcknowledged = true;
+  markUnsavedChanges();
+  scheduleLocalCacheWrite();
+  renderLocationReviewList();
+  updateLocationReviewBadge();
+}
+
+// 上記「確認OK」の取り消し（2026-08-01追加）：確認済みフラグだけを外し、再び一覧に戻す。
+// locationLookupSkippedはそのまま（自動バッチ対象からは引き続き除外）なので、自動バッチにも
+// 戻したい場合は「もう一度調べる対象に含める」（retryLocationLookup）を使う。
+function undoConfirmLocationSkipped(id) {
+  const place = places.find(p => p.id === id);
+  if (!place) return;
+  place.locationLookupAcknowledged = false;
   markUnsavedChanges();
   scheduleLocalCacheWrite();
   renderLocationReviewList();
@@ -3026,6 +3128,7 @@ function saveLocationReviewManualFix(id, { address, url, coordsText }) {
 
   place.locationNeedsReview = false;
   place.locationReviewReason = null;
+  place.locationReviewAcknowledged = false;
   place.locationLookupSkipped = false;
   place.locationLookupAcknowledged = false;
 
@@ -4463,9 +4566,15 @@ function buildBackupJSONPayload(list = places) {
     // Gemini由来フィールドと同様に非対応、4節参照）。
     locationNeedsReview: p.locationNeedsReview || false,
     locationReviewReason: p.locationReviewReason || null,
+    // 上記の「確認OK」を押したかどうか（2026-08-01追加）。locationNeedsReview自体は残したまま
+    // このフラグだけで一覧・バッジから外すため、誤って押しても取り消せる（undoConfirmLocationReview）。
+    locationReviewAcknowledged: p.locationReviewAcknowledged || false,
     // Geminiが前回のバッチで何も見つけられず、自動バッチ対象から除外中というフラグ
     // （2026-07-28実装）。立っていないと同じ場所を無駄に何度も問い合わせてしまうため。
     locationLookupSkipped: p.locationLookupSkipped || false,
+    // 上記に対する「確認OK」を押したかどうか（2026-08-01追加。以前はJSONバックアップに
+    // 含まれておらず、エクスポート→再読込すると確認済み状態が失われていた）。
+    locationLookupAcknowledged: p.locationLookupAcknowledged || false,
     // Googleマップのカスタムリスト（「行ってみたい」等）由来のフィールド。CSVフルエクスポート
     // には含めない（他のGemini由来フィールドと同じ「JSONのみロスレス」方針、4節参照）。
     wishlistListName: p.wishlistListName || null,

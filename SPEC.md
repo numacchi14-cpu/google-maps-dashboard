@@ -221,6 +221,7 @@ Google Takeout でエクスポートした「保存済みの場所」「クチ�
   - **「行ってみたい」リスト由来スポットで、既に完備しているのに「もう一度調べる対象に含める」が効かない不具合を修正、あわせて「確認OK」・Googleマップ直接リンクを追加（2026-08-01実装）**：ユーザーが本番データ（実際のバックアップJSON、970件規模）で確認したところ、上記2件の修正後もなお「行きたいリスト」由来のスポットの一部で「もう一度調べる対象に含める」を押しても対象に復活しない事例が報告された。原因はデータを直接調べて特定：「行ってみたい」リストCSV取り込み時点では`url`のみあり`address`・`lat`/`lng`は空欄だが、その後同じ場所に実際に訪れてTakeoutの通常エクスポート（クチコミ）にも登場すると、`deduplicatePlaces`のURL一致マージで住所・緯度経度が空欄埋めされ、記録として完備する（「行きたい→行った」）。ところがこのマージ処理は`locationLookupSkipped`フラグには一切触れないため、以前Geminiが何も見つけられずに立った`locationLookupSkipped = true`が、データが完備した後も残り続けていた。`getGeminiLocationIncompletePlaces`自体はurl/lat/lngが揃っていれば元々対象外にしていたため実害はなかったが、「リンク・緯度経度 要確認」モーダルの「Geminiが見つけられなかったスポット」欄・バッジ件数は`locationLookupSkipped`の真偽だけで表示していたため、既に解決済みの項目が「要確認」として残り続け、「もう一度調べる対象に含める」を押しても（既に完備しているため）何も起きないように見えていた。判定ロジックを`isLocationLookupStillNeeded(p)`として切り出し、モーダルの一覧・バッジ集計の両方で「`locationLookupSkipped`が立っている」だけでなく「実際にまだurl/lat/lngのいずれかが欠けている」ことも条件に加えることで、完備済みの項目は自動的に一覧から消えるようにした（フラグ自体は残るが実害が無いため、既存データへの移行処理は行わない）。
     あわせて2点、ユーザー要望に基づき追加：①「Geminiが見つけられなかったスポット」側にも「確認OK」ボタン（`confirmLocationSkipped`）を新設——こちらはこれ以上調べなくてよいとユーザーが判断した項目を、データは変更せず一覧からだけ消すためのもの（新設した`locationLookupAcknowledged`フラグで管理。「もう一度調べる対象に含める」・手動修正保存時はこのフラグもリセットする）。②`url`（Googleマップリンク）が既に分かっているスポットには「Googleマップで開く」ボタン（`appendGoogleMapsLinkButton`）を両カード（座標の確認が必要／Geminiが見つけられなかったスポット）に追加し、その場でGoogleマップを開いて実際の住所・座標を確認しながら「手動で修正」に反映できるようにした。
     動作確認：`node --check`・`npm test`（155件）はパス。`isLocationLookupStillNeeded`の単体テストと、フラグが残ったまま完備した行が対象から漏れないことの回帰テストを`tests/geminiLocation.test.js`に追加。`confirmLocationSkipped`・`appendGoogleMapsLinkButton`はDOM依存のため、既存の`confirmLocationReview`等と同様に自動テストは追加していない（ブラウザ実機確認が必要）
+  - **「確認OK」の取り消しができず、誤操作を戻せない不具合を修正（2026-08-01実装）**：上記の一連の不具合修正をユーザーが実機でテストする過程で、「座標の確認が必要」側の「確認OK」を誤って押してしまったが元に戻す手段が無い、という問題が発覚。従来の`confirmLocationReview`は`locationNeedsReview`・`locationReviewReason`を直接クリアしており、押した時点で情報が失われて復元不能だった（理由文言は破棄され、座標自体は元々変更されないため実データの損失は無いが、警告表示自体は戻せなかった）。「Geminiが見つけられなかったスポット」側は元々`locationLookupSkipped`本体は残したまま`locationLookupAcknowledged`だけを立てる設計だった（ただし取り消しUIまでは無かった）ため、この「フラグは残す・確認済みだけを別フラグで管理する」方式に両者を統一した：`confirmLocationReview`は新設の`locationReviewAcknowledged`フラグだけを立てるように変更（`locationNeedsReview`／`locationReviewReason`はそのまま保持）。モーダル下部に新設した「確認済み」セクションに、両フラグ（`locationReviewAcknowledged`／`locationLookupAcknowledged`）それぞれに対応する「取り消し」ボタン（`undoConfirmLocationReview`／`undoConfirmLocationSkipped`）を追加し、確認済みフラグだけを外して元の一覧（バッジ件数にも反映）に戻せるようにした。あわせて、`locationLookupAcknowledged`がJSONバックアップのエクスポート/インポート（`buildBackupJSONPayload`/`parseAppBackupJSON`）に一切含まれておらず、エクスポート→再読込すると確認済み状態が無言で失われる別の不具合も発見・修正し、新設の`locationReviewAcknowledged`と合わせて両方ロスレスに保持するようにした。回帰テストを`tests/parseAppBackupJSON.test.js`に追加（2フラグの往復を確認）。`confirmLocationReview`等と同じくDOM依存のため、モーダルの表示・取り消しボタンの動作自体はブラウザ実機確認が必要（未実施）。動作確認：`node --check`・`npm test`（156件）はパス
 - **Geminiモーダル（カテゴリー／リンク緯度経度／スポット検索）のレイアウト調整（2026-07-28実装）**：①プロンプト表示欄・②貼り付け欄が広すぎて③適用結果欄が狭く見づらいという指摘を受け、①②の`rows`を減らし`.gemini-cat-textarea-compact`クラス（min-height 50px）を3モーダル共通で適用、③の`.gemini-cat-result-list`側は基本の高さを220px→320pxに、既存の拡大版`.gemini-cat-result-list-large`（リンク緯度経度モーダルで先行採用済みだったもの）を420px→560pxにして、カテゴリーモーダルの結果欄にも同じ拡大クラスを適用した
 - **マイ都道府県／マイカテゴリー（2軸分離）**: Google連動側（自動判定結果）とは別軸で、各行を一覧の「マイカテゴリー」列のドロップダウンから手動上書き可能。上書きした値（`myPrefecture`/`myCategory`）は再インポート時も保護される。マイカテゴリーの選択肢は**ユーザー自作のマイカテゴリー＋既に登場したGoogle取得カテゴリー（Gemini）のみ**（標準12カテゴリーは選択肢から外している。理由は下記「マイカテゴリーの管理」参照） —— 例えば「ラーメン店」「うどん屋」「ハンバーガー店」という別々のGoogle連動カテゴリーを、マイカテゴリー側で共通の自作カテゴリー「グルメ」にまとめる、といった使い方ができる
 - **マイカテゴリーの管理**: ユーザーが独自カテゴリー（名前・色）を作成・削除できる管理モーダル（`registerCustomCategory`/`deleteCustomCategory`）。作成したカテゴリーは各行のマイカテゴリー欄で選択可能
@@ -276,9 +277,17 @@ Google Takeout でエクスポートした「保存済みの場所」「クチ�
                                   // 扱う（フィールド名は歴史的経緯でそのまま。詳細は4節）
   locationNeedsReview,           // 2026-07-28追加。「リンク・緯度経度をGeminiで調べる」で座標を
                                   // 住所と食い違ったまま登録した際に立つ要確認フラグ（既定false）。
-                                  // ヘッダーの「緯度経度 要確認」モーダルで内容確認後「確認OK」を
-                                  // 押すと外れる。JSONバックアップのみ保持、CSVは非対応
+                                  // 2026-08-01からは「確認OK」を押してもこのフラグ自体は消さず、
+                                  // 下記locationReviewAcknowledgedだけを立てる方式に変更（誤操作の
+                                  // 取り消しを可能にするため。詳細は4節）。JSONバックアップのみ保持、CSVは非対応
   locationReviewReason,           // 上記フラグが立った理由（都道府県の食い違い内容の文字列、未設定はnull）
+  locationReviewAcknowledged,     // 2026-08-01追加。locationNeedsReviewに対する「確認OK」を押したか
+                                  // （既定false）。trueの間は「緯度経度 要確認」モーダル・バッジの
+                                  // 対象一覧から外れるが、locationNeedsReview自体は残るため、モーダル下部の
+                                  // 「確認済み」欄の「取り消し」でこのフラグだけ外して元に戻せる
+  locationLookupAcknowledged,     // 2026-08-01追加。locationLookupSkipped（Geminiが見つけられなかった
+                                  // スポット）に対する「確認OK」を押したか（既定false）。上記と同じ
+                                  // 「フラグは残したまま確認済み扱いにする」方式で、取り消し可能
   wishlistListName, wishlistMemo, // 2026-07-28追加。Googleマップのカスタムリスト
   wishlistTags, wishlistComment  // （「行ってみたい」等）取り込み由来のフィールド（すべて任意）。
                                   // 既存のcomment（クチコミ本文）とは別物として区別する。
