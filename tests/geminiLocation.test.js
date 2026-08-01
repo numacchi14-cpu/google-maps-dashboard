@@ -5,6 +5,8 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const {
   getGeminiLocationIncompletePlaces,
+  markLocationRetryPriority,
+  isLocationLookupStillNeeded,
   buildGeminiLocationPrompt,
   parseGeminiLocationResponse,
   applyGeminiLocationResults,
@@ -31,6 +33,55 @@ test("getGeminiLocationIncompletePlaces: locationLookupSkippedが立っている
 
   const targets = getGeminiLocationIncompletePlaces().map(p => p.id);
   assert.deepEqual(targets, ["p2"]);
+});
+
+test("getGeminiLocationIncompletePlaces: markLocationRetryPriorityで登録したIDは配列順に関わらず先頭に来る（2026-08-01実装）", () => {
+  // バッチは常にplaces配列の並び順で先頭からGEMINI_LOCATION_BATCH_SIZE件を切り出すため、
+  // 対象が多い実データでは「もう一度調べる対象に含める」を押しても、本人に辿り着くまで
+  // 何ラウンドも先送りされ「再挑戦しても次のプロンプトに反映されない」ように見える不具合が
+  // あった（「行ってみたい」リスト由来スポットでの報告）。
+  places.length = 0;
+  places.push({ id: "p1", name: "未処理1", url: "", lat: null, lng: null });
+  places.push({ id: "p2", name: "未処理2", url: "", lat: null, lng: null });
+  places.push({ id: "target", name: "再挑戦したいスポット", url: "https://maps.example/target", lat: null, lng: null, locationLookupSkipped: false });
+  places.push({ id: "p4", name: "未処理4", url: "", lat: null, lng: null });
+
+  // 優先登録前は配列順のまま
+  assert.deepEqual(getGeminiLocationIncompletePlaces().map(p => p.id), ["p1", "p2", "target", "p4"]);
+
+  markLocationRetryPriority("target");
+  assert.deepEqual(getGeminiLocationIncompletePlaces().map(p => p.id), ["target", "p1", "p2", "p4"]);
+});
+
+test("getGeminiLocationIncompletePlaces: 完了済み（対象から外れた）優先IDは自然に脱落する", () => {
+  places.length = 0;
+  places.push({ id: "p1", name: "未処理", url: "", lat: null, lng: null });
+  places.push({ id: "done", name: "完了済み", url: "https://maps.example/done", lat: 35, lng: 139 });
+
+  markLocationRetryPriority("done");
+  // doneは既にurl/lat/lngが揃っているためincomplete対象から外れており、
+  // 優先登録されていても結果には出てこない。
+  assert.deepEqual(getGeminiLocationIncompletePlaces().map(p => p.id), ["p1"]);
+});
+
+test("isLocationLookupStillNeeded: url・lat・lngが全て揃っていればfalse、いずれか欠けていればtrue", () => {
+  assert.equal(isLocationLookupStillNeeded({ url: "https://maps.example/1", lat: 35, lng: 139 }), false);
+  assert.equal(isLocationLookupStillNeeded({ url: "", lat: 35, lng: 139 }), true);
+  assert.equal(isLocationLookupStillNeeded({ url: "https://maps.example/1", lat: null, lng: null }), true);
+});
+
+test("getGeminiLocationIncompletePlaces: 「行ってみたい」由来でlocationLookupSkippedが立ったまま後からurl/住所/座標が別経路（実訪問クチコミとのマージ等）で埋まった行は、フラグが残っていても対象に含めない（2026-08-01回帰確認）", () => {
+  // deduplicatePlacesの空欄埋めマージはlocationLookupSkippedを一切触らないため、
+  // 「行きたい→行った」で後から実データがマージされて完備しても、以前Geminiが
+  // 見つけられなかった名残のフラグだけが残り続ける。getGeminiLocationIncompletePlaces
+  // 自体は元々urlLat/lng完備なら対象外にしていたので実害は無いが、この状態を明示的に確認する。
+  places.length = 0;
+  places.push({
+    id: "p1", name: "わさび", url: "https://maps.example/wasabi",
+    lat: 33.59, lng: 130.4, locationLookupSkipped: true
+  });
+
+  assert.deepEqual(getGeminiLocationIncompletePlaces().map(p => p.id), []);
 });
 
 test("buildGeminiLocationPrompt: 評価・コメントを含めず名前と住所のみを送る", () => {

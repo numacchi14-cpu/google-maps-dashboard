@@ -47,7 +47,18 @@
             <li><code>drive.file</code>を、スポット帖が作成するバックアップの保存・読み込みだけに使用します</li>
             <li>Google Drive全体、氏名、メールアドレス、プロフィールへはアクセスしません</li>
           </ul>
-          <p class="hero-en" lang="en">
+          <!-- 英語説明のモバイル限定折りたたみ（2026-08-01実装）。デスクトップでは
+               .hero-en-toggle自体が非表示（CSS側の@media (max-width: 768px)参照）のため
+               常時展開のまま。日本語の説明（h1/hero-lead/hero-drive-facts）とプライバシー
+               ポリシーへのリンクは折りたたまない——OAuth審査対策としてホームページに
+               アプリの目的説明を常時表示する必要があるという方針（style.css内コメント・
+               SPEC.md参照）は維持しつつ、英語訳は.app-details側にも別途（折りたたみ無しの）
+               通常表示のブロックがあるため、この短い重複訳だけを対象にした。 -->
+          <button type="button" class="hero-en-toggle" id="hero-en-toggle" aria-expanded="false" aria-controls="hero-en-text">
+            <span>English</span>
+            <i data-lucide="chevron-down" id="hero-en-toggle-icon"></i>
+          </button>
+          <p class="hero-en" id="hero-en-text" lang="en">
             スポット帖 (Spot-cho) is a personal app for organizing your own Google Maps records.
             Optional Google Drive integration uses the drive.file scope only for the app's own backup file.
           </p>
@@ -652,8 +663,9 @@
       </div>
       <p class="modal-desc">
         「リンク・緯度経度をGeminiで調べる」に関連して、手動での確認・操作が必要なスポットをまとめて表示します。
-        ①座標の食い違い：住所から判定した都道府県と座標から判定した都道府県が食い違っていたスポットです。地図や住所と照らし合わせて問題なければ「確認OK」を押してください（座標やスポット自体は変更されず、フラグだけが外れます）。
-        ②Geminiが見つけられなかったスポット：前回のバッチでGeminiが情報を返せなかったため、以後の自動バッチ対象から外れています。もう一度試したい場合は「もう一度調べる対象に含める」を押してください。
+        ①座標の食い違い：住所から判定した都道府県と座標から判定した都道府県が食い違っていたスポットです。地図や住所と照らし合わせて問題なければ「確認OK」を押してください（座標やスポット自体は変更されず、フラグだけが外れます）。緯度経度に自信が持てない場合は「もう一度Geminiで調べ直す」で緯度経度をクリアし、次回バッチの対象に戻せます。
+        ②Geminiが見つけられなかったスポット：前回のバッチでGeminiが情報を返せなかったため、以後の自動バッチ対象から外れています。もう一度試したい場合は「もう一度調べる対象に含める」を、これ以上調べなくてよい場合は「確認OK」を押してください（住所・リンク・座標は変更されず、一覧から消えるだけです）。なお、住所・リンク・座標が既に全て揃っているスポットは、この一覧には表示されません。
+        どちらも、Googleマップのリンクが分かっていれば「Googleマップで開く」でその場で開いて確認でき、自分で調べた住所・リンク・緯度経度は「手動で修正」からその場で直接入力・保存できます。
       </p>
       <div id="location-review-list" class="unknown-spot-list"></div>
     </div>

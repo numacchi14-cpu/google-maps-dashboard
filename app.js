@@ -386,6 +386,19 @@ function setupEventListeners() {
     lucide.createIcons();
   });
 
+  // モバイル専用のhero-card英語説明の折りたたみ（2026-08-01実装）。デスクトップでは
+  // .hero-en-toggle自体が非表示なのでクリックされない（CSS側の@media (max-width: 768px)
+  // 参照）。日本語の説明は常時表示のまま変更しない（index.html側のコメント参照）。
+  const heroEnToggle = document.getElementById("hero-en-toggle");
+  const heroEnText = document.getElementById("hero-en-text");
+  const heroEnToggleIcon = document.getElementById("hero-en-toggle-icon");
+  heroEnToggle.addEventListener("click", () => {
+    const open = heroEnText.classList.toggle("open");
+    heroEnToggle.setAttribute("aria-expanded", open ? "true" : "false");
+    heroEnToggleIcon.setAttribute("data-lucide", open ? "chevron-up" : "chevron-down");
+    lucide.createIcons();
+  });
+
   // Drag & drop
   dropZone.addEventListener("dragover", (e) => {
     e.preventDefault();
@@ -2617,13 +2630,53 @@ const GEMINI_LOCATION_BATCH_SIZE = 50;
 // 現在プロンプトに含まれているバッチ（"適用する"時にどのidが対象かの参照用）
 let geminiLocationBatch = [];
 
+// 「もう一度Geminiで調べ直す」「もう一度調べる対象に含める」で個別に再挑戦を指定した
+// スポットのID（2026-08-01追加）。バッチは常にplaces配列の並び順で先頭からGEMINI_
+// LOCATION_BATCH_SIZE件を切り出すため、対象が数十件を超える実データでは、個別に
+// 再挑戦を指定しても本人がそれに辿り着くまで何ラウンドも先送りされ、「再挑戦を実施しても
+// 次のプロンプトに反映されない」ように見えてしまっていた（ユーザー報告、「行ってみたい」
+// リスト由来のスポットで発覚）。ここに登録されたIDはgetGeminiLocationIncompletePlaces
+// が次回バッチの先頭へ優先的に並べる。
+let geminiLocationRetryPriorityIds = [];
+
 // 差分方式の対象：Googleマップリンクまたは緯度経度のどちらかが未設定のスポットのみ。
 // ただしlocationLookupSkipped（Geminiが前回のバッチで何も答えられなかった）が
 // 立っている項目は除外する（2026-07-28実装。除外しないと、Geminiが分からないと
 // 答えたスポットが毎回のバッチに出続けてしまい、同じ場所を無駄に何度も問い合わせる
 // 羽目になっていた——座標の食い違いで同じ問題が起きていたのと同種のバグ）。
+// 「Googleマップリンク・緯度経度のどちらかが未設定」かどうかの判定。locationLookupSkipped
+// フラグの真偽に関わらず使えるよう切り出したもの（2026-08-01追加）。「行きたいリスト」由来の
+// スポットは、後からTakeoutの通常エクスポート（実際に訪れて生成されたクチコミ）と
+// deduplicatePlacesでURL一致マージされ、住所・緯度経度・リンクが全て埋まることがある。
+// このとき既に立っていたlocationLookupSkippedは（マージ処理では触っていないため）残り続け、
+// 「もう一度調べる対象に含める」を押しても対象は既に完備しているため何も起きず、
+// 「緯度経度 要確認」モーダルにも実害のない項目が残り続けてしまっていた（2026-08-01、
+// ユーザー報告により発覚）。表示・バッジ集計側で実体の完備状況を見て判定することで、
+// 古いフラグが残っていても実質的に解決済みの項目は自動的に表示から消えるようにする。
+function isLocationLookupStillNeeded(p) {
+  return !p.url || p.lat == null || p.lng == null;
+}
+
 function getGeminiLocationIncompletePlaces() {
-  return places.filter(p => !p.locationLookupSkipped && (!p.url || p.lat == null || p.lng == null));
+  const incomplete = places.filter(p => !p.locationLookupSkipped && isLocationLookupStillNeeded(p));
+  if (geminiLocationRetryPriorityIds.length === 0) return incomplete;
+
+  // 完了済み・存在しなくなったIDは自然に脱落させる（無制限に溜め続けない）。
+  const incompleteIds = new Set(incomplete.map(p => p.id));
+  geminiLocationRetryPriorityIds = geminiLocationRetryPriorityIds.filter(id => incompleteIds.has(id));
+  if (geminiLocationRetryPriorityIds.length === 0) return incomplete;
+
+  const prioritySet = new Set(geminiLocationRetryPriorityIds);
+  const prioritized = incomplete.filter(p => prioritySet.has(p.id));
+  const rest = incomplete.filter(p => !prioritySet.has(p.id));
+  return [...prioritized, ...rest];
+}
+
+// retryLocationLookup/retryLocationReviewから呼ばれる登録用ヘルパー。
+function markLocationRetryPriority(id) {
+  if (!geminiLocationRetryPriorityIds.includes(id)) {
+    geminiLocationRetryPriorityIds.push(id);
+  }
 }
 
 function buildGeminiLocationPrompt(batchPlaces) {
@@ -2739,8 +2792,10 @@ function updateLocationReviewBadge() {
   const badge = document.getElementById("location-review-count");
   if (!badge) return;
   // 座標の食い違いで要確認になったもの、Geminiが見つけられず自動バッチから除外された
-  // ものの両方を合わせて件数表示する（2026-07-28、後者を追加）。
-  const count = places.filter(p => p.locationNeedsReview || p.locationLookupSkipped).length;
+  // ものの両方を合わせて件数表示する（2026-07-28、後者を追加）。後者はisLocationLookupStillNeeded
+  // で実際にまだ空欄があるかも確認し、確認OKで確認済みにした項目も除外する（2026-08-01）。
+  const count = places.filter(p => p.locationNeedsReview ||
+    (p.locationLookupSkipped && !p.locationLookupAcknowledged && isLocationLookupStillNeeded(p))).length;
   badge.textContent = count > 0 ? `(${count})` : "";
 }
 
@@ -2755,7 +2810,7 @@ function renderLocationReviewList() {
   listEl.innerHTML = "";
 
   const reviewTargets = places.filter(p => p.locationNeedsReview);
-  const skippedTargets = places.filter(p => p.locationLookupSkipped);
+  const skippedTargets = places.filter(p => p.locationLookupSkipped && !p.locationLookupAcknowledged && isLocationLookupStillNeeded(p));
 
   if (reviewTargets.length === 0 && skippedTargets.length === 0) {
     const empty = document.createElement("p");
@@ -2792,6 +2847,8 @@ function renderLocationReviewList() {
       const actions = document.createElement("div");
       actions.className = "deleted-spot-item-actions";
 
+      appendGoogleMapsLinkButton(actions, spot);
+
       const confirmBtn = document.createElement("button");
       confirmBtn.className = "btn btn-primary";
       confirmBtn.type = "button";
@@ -2799,7 +2856,16 @@ function renderLocationReviewList() {
       confirmBtn.addEventListener("click", () => confirmLocationReview(spot.id));
       actions.appendChild(confirmBtn);
 
+      const retryGeminiBtn = document.createElement("button");
+      retryGeminiBtn.className = "btn";
+      retryGeminiBtn.type = "button";
+      retryGeminiBtn.textContent = "もう一度Geminiで調べ直す";
+      retryGeminiBtn.title = "緯度経度をクリアして、次の「リンク・緯度経度をGeminiで調べる」バッチの対象に戻します";
+      retryGeminiBtn.addEventListener("click", () => retryLocationReview(spot.id));
+      actions.appendChild(retryGeminiBtn);
+
       item.appendChild(actions);
+      appendLocationReviewManualFixForm(item, actions, spot);
       listEl.appendChild(item);
     });
   }
@@ -2827,6 +2893,16 @@ function renderLocationReviewList() {
       const actions = document.createElement("div");
       actions.className = "deleted-spot-item-actions";
 
+      appendGoogleMapsLinkButton(actions, spot);
+
+      const skipConfirmBtn = document.createElement("button");
+      skipConfirmBtn.className = "btn";
+      skipConfirmBtn.type = "button";
+      skipConfirmBtn.textContent = "確認OK";
+      skipConfirmBtn.title = "このスポットについては、これ以上Geminiに調べさせなくてよい場合に押してください（一覧から消えるだけで、住所・リンク・座標は変更しません）";
+      skipConfirmBtn.addEventListener("click", () => confirmLocationSkipped(spot.id));
+      actions.appendChild(skipConfirmBtn);
+
       const retryBtn = document.createElement("button");
       retryBtn.className = "btn btn-primary";
       retryBtn.type = "button";
@@ -2835,9 +2911,24 @@ function renderLocationReviewList() {
       actions.appendChild(retryBtn);
 
       item.appendChild(actions);
+      appendLocationReviewManualFixForm(item, actions, spot);
       listEl.appendChild(item);
     });
   }
+}
+
+// リンク・緯度経度 要確認モーダルの各カードに、Googleマップのリンクが既にあれば
+// 「Googleマップで開く」ボタンを追加する（2026-08-01追加）。その場でGoogleマップを開いて
+// 実際の住所・座標を確認しながら「手動で修正」に反映できるようにする、というユーザー要望。
+function appendGoogleMapsLinkButton(actionsEl, spot) {
+  if (!spot.url) return;
+  const linkBtn = document.createElement("a");
+  linkBtn.className = "btn";
+  linkBtn.href = spot.url;
+  linkBtn.target = "_blank";
+  linkBtn.rel = "noopener noreferrer";
+  linkBtn.textContent = "Googleマップで開く";
+  actionsEl.appendChild(linkBtn);
 }
 
 // 「確認OK」：座標・スポット自体は変更せず、要確認フラグのみ外す。
@@ -2852,16 +2943,174 @@ function confirmLocationReview(id) {
   updateLocationReviewBadge();
 }
 
+// 「もう一度Geminiで調べ直す」（2026-08-01追加）：座標の食い違いで要確認になった
+// スポット（locationNeedsReview）向け。lat/lngは既に埋まっているため
+// getGeminiLocationIncompletePlacesの対象条件（lat/lngが未設定）を満たさず、
+// 「もう一度調べる対象に含める」（下記、locationLookupSkipped専用）を押しても
+// 実際には次回バッチに戻らないというバグが報告された。lat/lngをクリアして
+// 「未設定」の状態に戻すことで、次回の差分バッチに再び対象として現れるようにする。
+function retryLocationReview(id) {
+  const place = places.find(p => p.id === id);
+  if (!place) return;
+  place.lat = null;
+  place.lng = null;
+  place.locationNeedsReview = false;
+  place.locationReviewReason = null;
+  markLocationRetryPriority(id);
+  markUnsavedChanges();
+  scheduleLocalCacheWrite();
+  renderLocationReviewList();
+  updateLocationReviewBadge();
+}
+
 // 「もう一度調べる対象に含める」：除外フラグだけを外し、次回の
 // 「リンク・緯度経度をGeminiで調べる」バッチに再び対象として現れるようにする。
 function retryLocationLookup(id) {
   const place = places.find(p => p.id === id);
   if (!place) return;
   place.locationLookupSkipped = false;
+  place.locationLookupAcknowledged = false;
+  markLocationRetryPriority(id);
   markUnsavedChanges();
   scheduleLocalCacheWrite();
   renderLocationReviewList();
   updateLocationReviewBadge();
+}
+
+// 「確認OK」（Geminiが見つけられなかったスポット向け、2026-08-01追加）：これ以上Geminiに
+// 調べさせる必要はないとユーザーが判断した場合に、一覧から消すためのボタン。
+// locationLookupSkippedはtrueのまま（自動バッチ対象からは引き続き除外）にしつつ、
+// locationLookupAcknowledgedを立てて「緯度経度 要確認」一覧・バッジからは非表示にする。
+// 住所・リンク・座標は変更しない（「確認OK」は判断の記録であって、データの修正ではないため）。
+function confirmLocationSkipped(id) {
+  const place = places.find(p => p.id === id);
+  if (!place) return;
+  place.locationLookupAcknowledged = true;
+  markUnsavedChanges();
+  scheduleLocalCacheWrite();
+  renderLocationReviewList();
+  updateLocationReviewBadge();
+}
+
+// 「手動で修正」（2026-08-01追加）：Geminiを介さず、ユーザー自身がGoogleマップ等で
+// 調べた住所・リンク・緯度経度を直接入力して保存する。空欄の項目は変更しない。
+// Geminiの空欄埋めロジックと異なり、これは明示的な手動修正のため既存値も上書きする
+// （間違っていたからこの画面に出てきている、という前提のため）。
+// 戻り値 { success: true } または { success: false, error } （フォーム側でエラー表示に使う）。
+function saveLocationReviewManualFix(id, { address, url, coordsText }) {
+  const place = places.find(p => p.id === id);
+  if (!place) return { success: false, error: "スポットが見つかりませんでした。" };
+
+  const trimmedAddress = (address || "").trim();
+  const trimmedUrl = (url || "").trim();
+  const trimmedCoords = (coordsText || "").trim();
+
+  let coords = null;
+  if (trimmedCoords) {
+    coords = parseCoordinatePair(trimmedCoords);
+    if (!coords) {
+      return { success: false, error: "緯度経度の形式が正しくありません（例: 35.6586, 139.7454）。" };
+    }
+  }
+
+  if (trimmedAddress) place.address = trimmedAddress;
+  if (trimmedUrl) place.url = trimmedUrl;
+  if (coords) {
+    place.lat = coords.lat;
+    place.lng = coords.lng;
+  }
+
+  if (trimmedAddress || coords) {
+    place.prefecture = extractPrefecture(place.address, place.name, place.lat, place.lng);
+  }
+
+  place.locationNeedsReview = false;
+  place.locationReviewReason = null;
+  place.locationLookupSkipped = false;
+  place.locationLookupAcknowledged = false;
+
+  markUnsavedChanges();
+  scheduleLocalCacheWrite();
+  return { success: true };
+}
+
+// 上記の手動修正フォームをカード内に組み立てる（座標の確認が必要／Geminiが見つけられ
+// なかったスポットの両方から共通で呼び出す）。「手動で修正」ボタンで開閉するだけの
+// シンプルなトグルフォーム。
+function appendLocationReviewManualFixForm(itemEl, actionsEl, spot) {
+  const editToggleBtn = document.createElement("button");
+  editToggleBtn.className = "btn";
+  editToggleBtn.type = "button";
+  editToggleBtn.textContent = "手動で修正";
+  actionsEl.appendChild(editToggleBtn);
+
+  const form = document.createElement("div");
+  form.className = "location-review-edit-form";
+
+  const addressInput = document.createElement("input");
+  addressInput.type = "text";
+  addressInput.className = "search-input";
+  addressInput.placeholder = "住所（例: 福岡県糸島市板持197-1）";
+  addressInput.value = spot.address || "";
+  form.appendChild(addressInput);
+
+  const urlInput = document.createElement("input");
+  urlInput.type = "text";
+  urlInput.className = "search-input";
+  urlInput.placeholder = "Googleマップのリンク";
+  urlInput.value = spot.url || "";
+  form.appendChild(urlInput);
+
+  const coordsInput = document.createElement("input");
+  coordsInput.type = "text";
+  coordsInput.className = "search-input";
+  coordsInput.placeholder = "緯度,経度（例: 35.6586, 139.7454）";
+  coordsInput.value = spot.lat != null && spot.lng != null ? `${spot.lat}, ${spot.lng}` : "";
+  form.appendChild(coordsInput);
+
+  const errorEl = document.createElement("p");
+  errorEl.className = "location-review-edit-error";
+  errorEl.style.display = "none";
+  form.appendChild(errorEl);
+
+  const formActions = document.createElement("div");
+  formActions.className = "location-review-edit-form-actions";
+
+  const saveBtn = document.createElement("button");
+  saveBtn.type = "button";
+  saveBtn.className = "btn btn-primary";
+  saveBtn.textContent = "保存";
+  formActions.appendChild(saveBtn);
+
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.className = "btn";
+  cancelBtn.textContent = "キャンセル";
+  formActions.appendChild(cancelBtn);
+
+  form.appendChild(formActions);
+  itemEl.appendChild(form);
+
+  editToggleBtn.addEventListener("click", () => {
+    form.classList.toggle("open");
+  });
+  cancelBtn.addEventListener("click", () => {
+    form.classList.remove("open");
+  });
+  saveBtn.addEventListener("click", () => {
+    const result = saveLocationReviewManualFix(spot.id, {
+      address: addressInput.value,
+      url: urlInput.value,
+      coordsText: coordsInput.value
+    });
+    if (!result.success) {
+      errorEl.textContent = result.error;
+      errorEl.style.display = "block";
+      return;
+    }
+    renderLocationReviewList();
+    updateLocationReviewBadge();
+  });
 }
 
 function openLocationReviewModal() {
@@ -3840,7 +4089,30 @@ function renderTable(filteredList) {
     const commentTd = document.createElement("td");
     commentTd.className = "review-text-cell";
     commentTd.setAttribute("data-label", "レビュー・メモ");
-    commentTd.innerHTML = p.comment ? `<div class="cell-scrollable" title="${p.comment}">${p.comment}</div>` : `<div class="cell-scrollable">-</div>`;
+    const commentTextEl = document.createElement("div");
+    commentTextEl.className = "cell-scrollable";
+    if (p.comment) {
+      commentTextEl.title = p.comment;
+      commentTextEl.textContent = p.comment;
+    } else {
+      commentTextEl.textContent = "-";
+    }
+    commentTd.appendChild(commentTextEl);
+    // モバイルのカード表示（768px以下）でのみ、初期3行クランプ＋「もっと見る」で
+    // 全文表示に切り替えられるようにする（2026-08-01実装。desktop側はCSSで
+    // .review-text-toggleが常時非表示のため出番が無い）。短いコメントに毎回
+    // 意味の無いボタンを出さないよう、ある程度の長さがある場合のみ追加する。
+    if (p.comment && p.comment.length > 60) {
+      const toggleBtn = document.createElement("button");
+      toggleBtn.type = "button";
+      toggleBtn.className = "review-text-toggle";
+      toggleBtn.textContent = "もっと見る";
+      toggleBtn.addEventListener("click", () => {
+        const expanded = commentTextEl.classList.toggle("expanded");
+        toggleBtn.textContent = expanded ? "閉じる" : "もっと見る";
+      });
+      commentTd.appendChild(toggleBtn);
+    }
 
     // Update Date Column（内部的にはpublishTimeフィールド。Google Takeoutは真の初回
     // 投稿日を出力せず、この日付が編集のたびに更新されて返ってくるため「最終更新日」として
@@ -4865,5 +5137,5 @@ function loadSampleData() {
 
 // Expose pure logic functions for Node-based tests (no-op in the browser).
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { classifyCategory, extractPrefecture, parseAppBackupJSON, getAllCategories, customCategories, geminiCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, summarizeUnresolvedMyCategoryNames, getOrCreateGeminiCategory, buildGeminiCategoryPrompt, extractJSONArrayFromGeminiResponse, parseGeminiCategoryResponse, applyGeminiCategoryResults, getGeminiLocationIncompletePlaces, buildGeminiLocationPrompt, parseGeminiLocationResponse, applyGeminiLocationResults, parsePlaceLookupQueries, buildPlaceLookupPrompt, parsePlaceLookupResponse, checkPlaceLookupCoordinateMismatch, buildManualPlaceFieldsFromLookupCandidate, deduplicatePlaces, buildPlaceMatchKey, isSavedListCSV, parseSavedListCSV, buildFilterMatchersFromValues, placesMatchingFiltersExcept, findPossibleDuplicates, normalizeAddressForCompare, places, shouldScheduleLocalCacheWrite };
+  module.exports = { classifyCategory, extractPrefecture, parseAppBackupJSON, getAllCategories, customCategories, geminiCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, summarizeUnresolvedMyCategoryNames, getOrCreateGeminiCategory, buildGeminiCategoryPrompt, extractJSONArrayFromGeminiResponse, parseGeminiCategoryResponse, applyGeminiCategoryResults, getGeminiLocationIncompletePlaces, markLocationRetryPriority, isLocationLookupStillNeeded, buildGeminiLocationPrompt, parseGeminiLocationResponse, applyGeminiLocationResults, parsePlaceLookupQueries, buildPlaceLookupPrompt, parsePlaceLookupResponse, checkPlaceLookupCoordinateMismatch, buildManualPlaceFieldsFromLookupCandidate, deduplicatePlaces, buildPlaceMatchKey, isSavedListCSV, parseSavedListCSV, buildFilterMatchersFromValues, placesMatchingFiltersExcept, findPossibleDuplicates, normalizeAddressForCompare, places, shouldScheduleLocalCacheWrite };
 }

@@ -274,6 +274,12 @@ header {
   margin-bottom: 0.6rem;
 }
 
+/* モバイルでのみ表示される英語説明の折りたたみボタン（2026-08-01実装）。デスクトップでは
+   非表示のまま＝.hero-enは常時展開（下の@media (max-width: 768px)で上書き）。 */
+.hero-en-toggle {
+  display: none;
+}
+
 .hero-privacy-link {
   font-size: 0.85rem;
 }
@@ -569,6 +575,15 @@ header {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 1.5rem;
+}
+
+/* 2026-08-01修正：グリッドアイテムは既定でmin-width:auto（中身の最大幅）になるため、
+   #map（Leaflet）やcanvas（Chart.js）の内部サイズ次第で列自体が画面幅を超えて広がり、
+   bodyのoverflow-x:hiddenで右側が見えないまま切れる不具合があった（スマホで報告）。
+   .dashboard-grid > *に対して2026-07-24に行ったのと同じ修正（min-width:0）だが、
+   入れ子になっているこの.bottom-grid側には当時適用されていなかった。 */
+.bottom-grid > * {
+  min-width: 0;
 }
 
 @media (max-width: 1024px) {
@@ -1316,6 +1331,13 @@ tr:hover td {
   max-width: 320px;
 }
 
+/* レビュー本文の折りたたみ「もっと見る」トグル（2026-08-01実装）。デスクトップの
+   .cell-scrollableは横スクロール表示のため出番が無く、常時display:noneのまま。
+   モバイル（768px以下、下の@media参照）でのみ表示され、初期状態で3行にクランプする。 */
+.review-text-toggle {
+  display: none;
+}
+
 /* Loading Overlay */
 .loading-overlay {
   position: fixed;
@@ -1896,6 +1918,41 @@ tr:hover td {
   font-size: 0.8rem;
 }
 
+.deleted-spot-item-actions a.btn {
+  text-decoration: none;
+}
+
+/* 「緯度経度 要確認」モーダルの手動修正フォーム（2026-08-01追加）：GoogleMapで自分で
+   調べた住所・リンク・緯度経度を直接入力するための折りたたみフォーム。.deleted-spot-item
+   （情報＋操作ボタンのflex行）の子として、開いたときだけ全幅で新しい行に表示する。 */
+.location-review-edit-form {
+  display: none;
+  flex: 1 1 100%;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding-top: 0.6rem;
+  border-top: 1px dashed var(--border-color);
+}
+
+.location-review-edit-form.open {
+  display: flex;
+}
+
+.location-review-edit-form .search-input {
+  padding-left: 1rem;
+}
+
+.location-review-edit-form-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.location-review-edit-error {
+  font-size: 0.78rem;
+  color: var(--danger);
+}
+
 /* Responsive adjustments */
 @media (max-width: 1200px) {
   .dashboard-grid {
@@ -1909,6 +1966,10 @@ tr:hover td {
 }
 
 @media (max-width: 768px) {
+  /* 2026-08-01に2列化を試したが、カード内の数値・ラベルが窮屈に折り返されて
+     かえって読みにくくなったためユーザー確認の上1列に戻した（要望②は縦の長さより
+     可読性を優先）。統計カードの縦の長さ短縮は見送り、レビュー本文の折りたたみ
+     （.review-text-cell側）のみで対応する。 */
   .stats-container {
     grid-template-columns: 1fr;
   }
@@ -1953,9 +2014,37 @@ tr:hover td {
     font-size: 0.72rem;
   }
 
+  /* 英語説明（.hero-en）のみモバイル限定で折りたたむ（2026-08-01実装、要望①）。
+     日本語の説明・h1・プライバシーポリシーへのリンクは対象外（常時表示のまま）。
+     .app-details側にも折りたたみ無しの詳しい英語説明が別途あるため、ここは
+     短い重複訳を隠すだけで「ホームページに説明が無い」状態にはならない
+     （index.html内コメント・SPEC.md参照）。 */
+  .hero-en-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+    padding: 0;
+    margin-bottom: 0.4rem;
+    cursor: pointer;
+  }
+
+  .hero-en-toggle i {
+    width: 12px;
+    height: 12px;
+  }
+
   .hero-en {
+    display: none;
     font-size: 0.7rem;
     margin-bottom: 0.5rem;
+  }
+
+  .hero-en.open {
+    display: block;
   }
 
   /* 操作メニュー（ファイルを追加読み込み〜リセット）の折りたたみ。モバイルは
@@ -2053,6 +2142,32 @@ tr:hover td {
 
   .col-actions > div {
     justify-content: flex-end;
+  }
+
+  /* レビュー本文の折りたたみ（2026-08-01実装、要望②）。カード表示は縦に長くなり
+     やすいため、初期状態は3行にクランプし「もっと見る」で全文表示に切り替える。
+     review-text-toggleはJS側（renderTable）が長い本文にのみ追加する。 */
+  .review-text-cell .cell-scrollable {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .review-text-cell .cell-scrollable.expanded {
+    -webkit-line-clamp: unset;
+    overflow: visible;
+  }
+
+  .review-text-toggle {
+    display: inline-block;
+    margin-top: 0.35rem;
+    padding: 0;
+    background: none;
+    border: none;
+    color: var(--accent-primary);
+    font-size: 0.8rem;
+    cursor: pointer;
   }
 
   .cell-scrollable {
