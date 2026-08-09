@@ -325,9 +325,14 @@
         <div class="glass-card" id="map-card">
           <div class="card-header">
             <h3 class="card-title"><i data-lucide="navigation"></i> インタラクティブ・マップ</h3>
-            <button type="button" class="btn btn-map-fullscreen" id="map-fullscreen-toggle" title="地図を拡大表示">
-              <i data-lucide="maximize-2"></i>
-            </button>
+            <div class="card-header-actions">
+              <button type="button" class="btn btn-map-fullscreen" id="map-tile-theme-toggle" title="明るい地図に切り替える">
+                <i data-lucide="sun"></i>
+              </button>
+              <button type="button" class="btn btn-map-fullscreen" id="map-fullscreen-toggle" title="地図を拡大表示">
+                <i data-lucide="maximize-2"></i>
+              </button>
+            </div>
           </div>
           <div id="map"></div>
         </div>
