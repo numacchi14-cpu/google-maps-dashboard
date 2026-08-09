@@ -1503,6 +1503,27 @@ tr:hover td {
   overflow-y: auto;
 }
 
+/* SNSシェア画像モーダル（2026-08-10実装） */
+.share-card-format-toggle {
+  align-self: flex-start;
+}
+
+.share-card-preview-wrap {
+  display: flex;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 0.75rem;
+}
+
+.share-card-canvas {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  display: block;
+}
+
 .modal-close-btn {
   background: transparent;
   border: none;

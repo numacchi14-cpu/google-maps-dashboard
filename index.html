@@ -137,6 +137,9 @@
                 <button class="btn" id="btn-export-json">
                   <i data-lucide="file-json"></i> JSONエクスポート
                 </button>
+                <button class="btn" id="btn-share-card" type="button">
+                  <i data-lucide="image"></i> SNSシェア画像を作る
+                </button>
                 <button class="btn" id="btn-location-review" type="button">
                   <i data-lucide="alert-triangle"></i> 緯度経度 要確認<span id="location-review-count" class="deleted-spots-badge"></span>
                 </button>
@@ -484,6 +487,31 @@
           <input type="file" id="manual-csv-input" accept=".csv" style="display:none;">
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- SNSシェア画像 Modal（2026-08-10実装） -->
+  <div class="modal-overlay" id="share-card-overlay">
+    <div class="glass-card modal-card">
+      <div class="card-header">
+        <h3 class="card-title"><i data-lucide="image"></i> SNSシェア画像を作る</h3>
+        <button class="modal-close-btn" id="share-card-close" type="button" aria-label="閉じる">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <p class="modal-desc">
+        今の絞り込み結果を元に、SNSでシェアしやすい振り返り画像を作れます。期間や都道府県を絞り込んでからこの画面を開き直すと、その内容で作り直せます（例：期間を「2025年」だけに絞る、など）。
+      </p>
+      <div class="cat-axis-toggle share-card-format-toggle" id="share-card-format-toggle" role="group" aria-label="画像の形を切り替え">
+        <button type="button" class="cat-axis-toggle-btn active" data-format="story">ストーリー用（縦長）</button>
+        <button type="button" class="cat-axis-toggle-btn" data-format="square">投稿用（正方形）</button>
+      </div>
+      <div class="share-card-preview-wrap">
+        <canvas id="share-card-canvas" class="share-card-canvas"></canvas>
+      </div>
+      <button class="btn btn-primary" id="share-card-download" type="button">
+        <i data-lucide="download"></i> 画像をダウンロード
+      </button>
     </div>
   </div>
 

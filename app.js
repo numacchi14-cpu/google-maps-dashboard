@@ -399,6 +399,11 @@ function setupEventListeners() {
   const filterDateTo = document.getElementById("filter-date-to");
   const btnExportCsv = document.getElementById("btn-export-csv");
   const btnExportJson = document.getElementById("btn-export-json");
+  const btnShareCard = document.getElementById("btn-share-card");
+  const shareCardOverlay = document.getElementById("share-card-overlay");
+  const shareCardClose = document.getElementById("share-card-close");
+  const shareCardFormatToggle = document.getElementById("share-card-format-toggle");
+  const shareCardDownload = document.getElementById("share-card-download");
   const btnReset = document.getElementById("btn-reset");
   const btnCategorySettings = document.getElementById("btn-category-settings");
   const categorySettingsOverlay = document.getElementById("category-settings-overlay");
@@ -576,6 +581,24 @@ function setupEventListeners() {
   // Export & Reset
   btnExportCsv.addEventListener("click", exportCSV);
   btnExportJson.addEventListener("click", exportJSON);
+
+  // SNSシェア画像（2026-08-10実装）
+  btnShareCard.addEventListener("click", openShareCardModal);
+  shareCardClose.addEventListener("click", closeShareCardModal);
+  shareCardOverlay.addEventListener("click", (e) => {
+    if (e.target === shareCardOverlay) closeShareCardModal();
+  });
+  shareCardFormatToggle.addEventListener("click", (e) => {
+    const btn = e.target.closest(".cat-axis-toggle-btn");
+    if (!btn) return;
+    shareCardFormat = btn.dataset.format;
+    shareCardFormatToggle.querySelectorAll(".cat-axis-toggle-btn").forEach(b => {
+      b.classList.toggle("active", b === btn);
+    });
+    renderShareCard();
+  });
+  shareCardDownload.addEventListener("click", downloadShareCard);
+
   btnReset.addEventListener("click", resetApp);
 
   // マイカテゴリー設定 (custom category management modal)
@@ -4747,6 +4770,375 @@ function exportJSON() {
   // JSON is the one lossless format (unlike exportCSV — see SPEC.md §4), so a
   // download here counts as a real backup and clears the unsaved-changes flag.
   clearUnsavedChanges();
+}
+
+// --- SNS Share Card (2026-08-10実装) ---
+// filterAndRender()と同じ絞り込みロジックを、状態を持たず単発で呼べる形にしたもの。
+// シェア画像は「今のフィルター条件」をそのまま反映する仕様のため（例：期間を
+// 「2025年」に絞ってから開くと2025年分だけのカードになる）、filterAndRender内部の
+// `filtered`をそのまま使い回せない（グローバルに保持していないため）ので、
+// 同じ組み立て方（buildFilterMatchersFromValues）でその場で再計算する。
+function getCurrentFilteredPlaces() {
+  const filterValues = readCurrentFilterValues();
+  const matchers = buildFilterMatchersFromValues(filterValues);
+  return places.filter(p => Object.values(matchers).every(fn => fn(p)));
+}
+
+let shareCardFormat = "story"; // "story" (1080x1920) | "square" (1080x1080)
+
+function openShareCardModal() {
+  document.getElementById("share-card-overlay").classList.add("active");
+  renderShareCard();
+}
+
+function closeShareCardModal() {
+  document.getElementById("share-card-overlay").classList.remove("active");
+}
+
+// 現在の絞り込み結果から、カードに載せる統計値を組み立てる。統計カード
+// （renderStats）・グラフ（renderCharts）と基本的に同じ集計ロジックだが、カード用に
+// 「最多カテゴリー」を実効値（マイカテゴリー優先）1本にまとめ、都道府県は
+// ランキング形式で持つ点が異なる
+function computeShareCardStats(filteredList) {
+  const allCats = getAllCategories();
+  const total = filteredList.length;
+
+  const uniquePrefs = new Set(
+    filteredList.map(p => getEffectivePrefecture(p)).filter(pref => pref !== "その他・海外")
+  );
+  const prefCount = uniquePrefs.size;
+  const prefPercent = Math.round((prefCount / PREFECTURES.length) * 100);
+
+  const catCounts = {};
+  filteredList.forEach(p => {
+    const key = getEffectiveCategory(p);
+    catCounts[key] = (catCounts[key] || 0) + 1;
+  });
+  const topCategoryEntry = Object.entries(catCounts).sort((a, b) => b[1] - a[1])[0] || null;
+  const topCategoryName = topCategoryEntry ? (allCats[topCategoryEntry[0]]?.name || "-") : "-";
+  const topCategoryColor = topCategoryEntry ? (allCats[topCategoryEntry[0]]?.color || "#3b82f6") : "#3b82f6";
+  const topCategoryCount = topCategoryEntry ? topCategoryEntry[1] : 0;
+
+  const prefCounts = {};
+  filteredList.forEach(p => {
+    const pref = getEffectivePrefecture(p);
+    prefCounts[pref] = (prefCounts[pref] || 0) + 1;
+  });
+  const topPrefectures = Object.entries(prefCounts)
+    .filter(([pref]) => pref !== "その他・海外")
+    .sort((a, b) => b[1] - a[1]);
+
+  const filterValues = readCurrentFilterValues();
+  const periodLabel = (filterValues.dateFrom || filterValues.dateTo)
+    ? `${filterValues.dateFrom || "…"} 〜 ${filterValues.dateTo || "…"}`
+    : null;
+
+  return { total, prefCount, prefPercent, topCategoryName, topCategoryColor, topCategoryCount, topPrefectures, periodLabel };
+}
+
+function shareCardRoundedRect(ctx, x, y, w, h, r) {
+  const radius = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.arcTo(x + w, y, x + w, y + h, radius);
+  ctx.arcTo(x + w, y + h, x, y + h, radius);
+  ctx.arcTo(x, y + h, x, y, radius);
+  ctx.arcTo(x, y, x + w, y, radius);
+  ctx.closePath();
+}
+
+// --accent-gradientと同じ配色（blue→green）の横方向グラデーション
+function shareCardAccentGradient(ctx, x0, x1, y) {
+  const g = ctx.createLinearGradient(x0, y, x1, y);
+  g.addColorStop(0, "#3b82f6");
+  g.addColorStop(1, "#10b981");
+  return g;
+}
+
+function drawShareCardProgressBar(ctx, x, y, w, h, percent) {
+  shareCardRoundedRect(ctx, x, y, w, h, h / 2);
+  ctx.fillStyle = "rgba(255,255,255,0.08)";
+  ctx.fill();
+  const fillW = Math.max(h, w * Math.min(Math.max(percent, 0), 100) / 100);
+  shareCardRoundedRect(ctx, x, y, fillW, h, h / 2);
+  ctx.fillStyle = shareCardAccentGradient(ctx, x, x + w, y);
+  ctx.fill();
+}
+
+// ダーク基調の背景＋薄いアクセントカラーのグロー（アプリ本体のガラスモーフィズム調に寄せる）
+function drawShareCardBackground(ctx, w, h) {
+  const bg = ctx.createLinearGradient(0, 0, 0, h);
+  bg.addColorStop(0, "#0b0f19");
+  bg.addColorStop(1, "#101a2e");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+
+  const glow = ctx.createRadialGradient(w * 0.5, h * 0.05, 0, w * 0.5, h * 0.05, w * 0.9);
+  glow.addColorStop(0, "rgba(59, 130, 246, 0.18)");
+  glow.addColorStop(1, "rgba(59, 130, 246, 0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, w, h);
+}
+
+// ランキング行（順位・都道府県名 + ミニバー + 件数）を1行分描画する。バーの右端と
+// 件数テキストの間にcountColW分の余白を確保しないと、1位（bar幅が満タン）の行で
+// バーと件数テキストが重なってしまうため専用のヘルパーに切り出した
+function drawShareCardRankRow(ctx, { padX, w, y, rank, label, count, maxCount, barMaxW, barH, countColW, labelFont, countFont }) {
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#f3f4f6";
+  ctx.font = labelFont;
+  ctx.fillText(`${rank}. ${label}`, padX, y);
+
+  const barX = w - padX - countColW - barMaxW;
+  drawShareCardProgressBar(ctx, barX, y - barH * 1.7, barMaxW, barH, (count / maxCount) * 100);
+
+  ctx.textAlign = "right";
+  ctx.fillStyle = "#9ca3af";
+  ctx.font = countFont;
+  ctx.fillText(`${count}件`, w - padX, y);
+}
+
+// ストーリー用（1080x1920）レイアウト。縦の余白が大きく余りがちなため、主要な
+// セクション間の間隔を広めに取ってキャンバス全体に内容が行き渡るようにしている
+function drawShareCardStory(ctx, w, h, stats) {
+  const padX = 90;
+  let y = 150;
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#34d399";
+  ctx.font = "600 30px 'Inter', sans-serif";
+  ctx.fillText("MY SPOT LOG", w / 2, y);
+
+  y += 76;
+  ctx.fillStyle = shareCardAccentGradient(ctx, w / 2 - 220, w / 2 + 220, y);
+  ctx.font = "700 84px 'Outfit', sans-serif";
+  ctx.fillText("スポット帖", w / 2, y);
+
+  y += 52;
+  ctx.fillStyle = "#9ca3af";
+  ctx.font = "400 28px 'Inter', sans-serif";
+  ctx.fillText("自分だけの記録", w / 2, y);
+
+  y += 100;
+  ctx.strokeStyle = "rgba(255,255,255,0.12)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(padX, y);
+  ctx.lineTo(w - padX, y);
+  ctx.stroke();
+
+  y += 160;
+  ctx.fillStyle = "#f3f4f6";
+  ctx.font = "700 220px 'Outfit', sans-serif";
+  ctx.fillText(String(stats.total), w / 2, y);
+
+  y += 64;
+  ctx.fillStyle = "#9ca3af";
+  ctx.font = "500 34px 'Inter', sans-serif";
+  ctx.fillText("件のスポットを記録", w / 2, y);
+
+  y += 150;
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#9ca3af";
+  ctx.font = "500 30px 'Inter', sans-serif";
+  ctx.fillText("都道府県 制覇", padX, y);
+  ctx.textAlign = "right";
+  ctx.fillStyle = "#f3f4f6";
+  ctx.font = "700 40px 'Outfit', sans-serif";
+  ctx.fillText(`${stats.prefCount} / ${PREFECTURES.length}（${stats.prefPercent}%）`, w - padX, y);
+
+  y += 34;
+  drawShareCardProgressBar(ctx, padX, y, w - padX * 2, 24, stats.prefPercent);
+
+  y += 150;
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#9ca3af";
+  ctx.font = "500 30px 'Inter', sans-serif";
+  ctx.fillText("よく行くカテゴリー", padX, y);
+
+  y += 62;
+  ctx.fillStyle = stats.topCategoryColor;
+  ctx.beginPath();
+  ctx.arc(padX + 16, y - 14, 16, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#f3f4f6";
+  ctx.font = "600 42px 'Outfit', sans-serif";
+  ctx.fillText(stats.topCategoryName, padX + 48, y);
+  ctx.textAlign = "right";
+  ctx.fillStyle = "#9ca3af";
+  ctx.font = "400 28px 'Inter', sans-serif";
+  ctx.fillText(`${stats.topCategoryCount}件`, w - padX, y);
+
+  y += 140;
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#9ca3af";
+  ctx.font = "500 30px 'Inter', sans-serif";
+  ctx.fillText("都道府県ランキング", padX, y);
+
+  const rankRows = stats.topPrefectures.slice(0, 5);
+  const maxCount = rankRows[0]?.[1] || 1;
+  rankRows.forEach(([pref, count], idx) => {
+    y += 88;
+    drawShareCardRankRow(ctx, {
+      padX, w, y, rank: idx + 1, label: pref, count, maxCount,
+      barMaxW: 300, barH: 16, countColW: 100,
+      labelFont: "600 32px 'Inter', sans-serif",
+      countFont: "400 26px 'Inter', sans-serif"
+    });
+  });
+
+  if (stats.periodLabel) {
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#6b7280";
+    ctx.font = "400 24px 'Inter', sans-serif";
+    ctx.fillText(`期間: ${stats.periodLabel}`, w / 2, h - 140);
+  }
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#6b7280";
+  ctx.font = "500 26px 'Inter', sans-serif";
+  ctx.fillText("スポット帖 (Spot-cho) ・ spots.num-ish.com", w / 2, h - 80);
+}
+
+// 投稿用・正方形（1080x1080）レイアウト。ストーリー用より縦の余裕が少ないため、
+// 都道府県ランキングを上位3件に絞り、行間・フォントサイズを詰めている
+function drawShareCardSquare(ctx, w, h, stats) {
+  const padX = 80;
+  let y = 110;
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#34d399";
+  ctx.font = "600 24px 'Inter', sans-serif";
+  ctx.fillText("MY SPOT LOG", w / 2, y);
+
+  y += 62;
+  ctx.fillStyle = shareCardAccentGradient(ctx, w / 2 - 180, w / 2 + 180, y);
+  ctx.font = "700 64px 'Outfit', sans-serif";
+  ctx.fillText("スポット帖", w / 2, y);
+
+  y += 70;
+  ctx.strokeStyle = "rgba(255,255,255,0.12)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(padX, y);
+  ctx.lineTo(w - padX, y);
+  ctx.stroke();
+
+  y += 100;
+  ctx.fillStyle = "#f3f4f6";
+  ctx.font = "700 140px 'Outfit', sans-serif";
+  ctx.fillText(String(stats.total), w / 2, y);
+
+  y += 42;
+  ctx.fillStyle = "#9ca3af";
+  ctx.font = "500 28px 'Inter', sans-serif";
+  ctx.fillText("件のスポットを記録", w / 2, y);
+
+  y += 84;
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#9ca3af";
+  ctx.font = "500 24px 'Inter', sans-serif";
+  ctx.fillText("都道府県 制覇", padX, y);
+  ctx.textAlign = "right";
+  ctx.fillStyle = "#f3f4f6";
+  ctx.font = "700 32px 'Outfit', sans-serif";
+  ctx.fillText(`${stats.prefCount} / ${PREFECTURES.length}（${stats.prefPercent}%）`, w - padX, y);
+
+  y += 28;
+  drawShareCardProgressBar(ctx, padX, y, w - padX * 2, 20, stats.prefPercent);
+
+  y += 78;
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#9ca3af";
+  ctx.font = "500 24px 'Inter', sans-serif";
+  ctx.fillText("よく行くカテゴリー", padX, y);
+
+  y += 48;
+  ctx.fillStyle = stats.topCategoryColor;
+  ctx.beginPath();
+  ctx.arc(padX + 13, y - 11, 13, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#f3f4f6";
+  ctx.font = "600 32px 'Outfit', sans-serif";
+  ctx.fillText(stats.topCategoryName, padX + 38, y);
+  ctx.textAlign = "right";
+  ctx.fillStyle = "#9ca3af";
+  ctx.font = "400 22px 'Inter', sans-serif";
+  ctx.fillText(`${stats.topCategoryCount}件`, w - padX, y);
+
+  y += 68;
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#9ca3af";
+  ctx.font = "500 24px 'Inter', sans-serif";
+  ctx.fillText("都道府県ランキング", padX, y);
+
+  const rankRows = stats.topPrefectures.slice(0, 3);
+  const maxCount = rankRows[0]?.[1] || 1;
+  rankRows.forEach(([pref, count], idx) => {
+    y += 56;
+    drawShareCardRankRow(ctx, {
+      padX, w, y, rank: idx + 1, label: pref, count, maxCount,
+      barMaxW: 230, barH: 14, countColW: 90,
+      labelFont: "600 26px 'Inter', sans-serif",
+      countFont: "400 22px 'Inter', sans-serif"
+    });
+  });
+
+  if (stats.periodLabel) {
+    y += 60;
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#6b7280";
+    ctx.font = "400 20px 'Inter', sans-serif";
+    ctx.fillText(`期間: ${stats.periodLabel}`, w / 2, y);
+  }
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#6b7280";
+  ctx.font = "500 22px 'Inter', sans-serif";
+  ctx.fillText("スポット帖 (Spot-cho) ・ spots.num-ish.com", w / 2, h - 50);
+}
+
+// 現在のshareCardFormat・絞り込み結果でプレビューcanvasを再描画する
+async function renderShareCard() {
+  const canvas = document.getElementById("share-card-canvas");
+  if (!canvas) return;
+  const width = 1080;
+  const height = shareCardFormat === "square" ? 1080 : 1920;
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+
+  const stats = computeShareCardStats(getCurrentFilteredPlaces());
+
+  // Webフォント（Inter/Outfit）の読み込み完了を待ってから描画する（先に描画すると
+  // 読み込み前のフォールバックフォントでテキストが焼き付いてしまうことがあるため）
+  if (document.fonts && document.fonts.ready) {
+    try { await document.fonts.ready; } catch (e) { /* フォント読み込み確認に失敗しても描画は続行 */ }
+  }
+
+  drawShareCardBackground(ctx, width, height);
+  if (shareCardFormat === "square") {
+    drawShareCardSquare(ctx, width, height, stats);
+  } else {
+    drawShareCardStory(ctx, width, height, stats);
+  }
+}
+
+function downloadShareCard() {
+  const canvas = document.getElementById("share-card-canvas");
+  if (!canvas) return;
+  canvas.toBlob((blob) => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `spot-cho-share-${shareCardFormat}-${Date.now()}.png`;
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, "image/png");
 }
 
 // --- Local Offline Cache (Phase 3, IndexedDB) ---
