@@ -257,16 +257,22 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // 地図タイルの配色テーマ。「地図が黒くて都道府県の境目が分かりにくい」という
-// 要望を受けて、ダーク（既定）とライトを切り替え可能にした（2026-08-10実装）。
-// トグルの設定値のみlocalCacheEnabledと同じ考え方でlocalStorageに保存する
-// （実データではなくUI設定のため。詳細はLOCAL_CACHE_PREF_KEYのコメント参照）
+// 要望を受けてダーク（既定）とライトを切り替え可能にし（2026-08-10実装）、
+// 続けて「Googleマップに近い、もっと詳細な地図」という要望を受けてCARTOの
+// 同一基盤上にある道路・ラベル多めの"Voyager"スタイルを追加した（2026-08-10実装）。
+// 3種ともCARTOの無料ベースマップ（APIキー・追加費用不要）で、URLパスが
+// 違うだけの同一ホスティング。選択状態のみlocalCacheEnabledと同じ考え方で
+// localStorageに保存する（実データではなくUI設定のため。詳細は
+// LOCAL_CACHE_PREF_KEYのコメント参照）
 const MAP_TILE_THEME_PREF_KEY = "mapTileTheme";
+const MAP_TILE_THEMES = ["dark", "light", "voyager"];
 const MAP_TILE_URLS = {
   dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-  light: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
+  light: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+  voyager: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
 };
 const MAP_TILE_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
-let mapTileTheme = "dark"; // "dark" | "light"
+let mapTileTheme = "dark"; // "dark" | "light" | "voyager"
 let currentMapTileLayer = null;
 
 // Initialize Leaflet Map
@@ -275,7 +281,7 @@ function initMap() {
   map = L.map('map').setView([36.2048, 138.2529], 5);
 
   const savedTheme = localStorage.getItem(MAP_TILE_THEME_PREF_KEY);
-  mapTileTheme = savedTheme === "light" ? "light" : "dark";
+  mapTileTheme = MAP_TILE_THEMES.includes(savedTheme) ? savedTheme : "dark";
   currentMapTileLayer = L.tileLayer(MAP_TILE_URLS[mapTileTheme], {
     attribution: MAP_TILE_ATTRIBUTION,
     subdomains: 'abcd',
@@ -284,9 +290,10 @@ function initMap() {
   updateMapTileThemeUI();
 }
 
-// 地図タイルのダーク/ライト切り替え（2026-08-10実装）
-function toggleMapTileTheme() {
-  mapTileTheme = mapTileTheme === "dark" ? "light" : "dark";
+// 地図タイルのテーマ切り替え（ダーク/ライト/詳細、2026-08-10実装）
+function setMapTileTheme(theme) {
+  if (!MAP_TILE_THEMES.includes(theme) || theme === mapTileTheme) return;
+  mapTileTheme = theme;
   if (currentMapTileLayer) map.removeLayer(currentMapTileLayer);
   currentMapTileLayer = L.tileLayer(MAP_TILE_URLS[mapTileTheme], {
     attribution: MAP_TILE_ATTRIBUTION,
@@ -297,22 +304,19 @@ function toggleMapTileTheme() {
   updateMapTileThemeUI();
 }
 
-// トグルボタンのアイコン・タイトルと、タイル読み込み中のプレースホルダー背景色を
+// トグルボタン群のactive状態と、タイル読み込み中のプレースホルダー背景色を
 // 現在のmapTileThemeに合わせる
 function updateMapTileThemeUI() {
   const mapEl = document.getElementById("map");
-  const btn = document.getElementById("map-tile-theme-toggle");
-  if (mapEl) mapEl.classList.toggle("map-tile-light", mapTileTheme === "light");
-  if (!btn) return;
-  const icon = btn.querySelector("[data-lucide]");
-  if (mapTileTheme === "dark") {
-    if (icon) icon.setAttribute("data-lucide", "sun");
-    btn.title = "明るい地図に切り替える";
-  } else {
-    if (icon) icon.setAttribute("data-lucide", "moon");
-    btn.title = "暗い地図に切り替える";
+  const group = document.getElementById("map-theme-toggle");
+  if (mapEl) {
+    mapEl.classList.toggle("map-tile-light", mapTileTheme === "light");
+    mapEl.classList.toggle("map-tile-voyager", mapTileTheme === "voyager");
   }
-  if (typeof lucide !== "undefined") lucide.createIcons();
+  if (!group) return;
+  group.querySelectorAll(".cat-axis-toggle-btn").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.theme === mapTileTheme);
+  });
 }
 
 // #map-cardの元の位置（親要素・直後の兄弟要素）を、拡大表示からの復帰時に
@@ -413,7 +417,7 @@ function setupEventListeners() {
   const catAxisToggle = document.getElementById("cat-axis-toggle");
   const mapFullscreenToggle = document.getElementById("map-fullscreen-toggle");
   const mapFullscreenBackdrop = document.getElementById("map-fullscreen-backdrop");
-  const mapTileThemeToggle = document.getElementById("map-tile-theme-toggle");
+  const mapThemeToggle = document.getElementById("map-theme-toggle");
   const btnManualAdd = document.getElementById("btn-manual-add");
   const btnManualAddEmpty = document.getElementById("btn-manual-add-empty");
   const manualAddOverlay = document.getElementById("manual-add-overlay");
@@ -480,8 +484,12 @@ function setupEventListeners() {
     lucide.createIcons();
   });
 
-  // 地図タイルのダーク/ライト切り替え（2026-08-10実装）
-  mapTileThemeToggle.addEventListener("click", toggleMapTileTheme);
+  // 地図タイルのダーク/ライト/詳細切り替え（2026-08-10実装）
+  mapThemeToggle.addEventListener("click", (e) => {
+    const btn = e.target.closest(".cat-axis-toggle-btn");
+    if (!btn) return;
+    setMapTileTheme(btn.dataset.theme);
+  });
 
   // インタラクティブマップの拡大表示（2026-08-10実装）
   mapFullscreenToggle.addEventListener("click", toggleMapFullscreen);

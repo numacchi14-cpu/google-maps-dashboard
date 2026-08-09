@@ -993,16 +993,31 @@ header {
   z-index: 1; /* Leaflet layering fix */
 }
 
-/* 明るい地図タイル選択時のプレースホルダー背景（タイル読み込み中のちらつき軽減用。
-   CARTO Positron/light_allの基調色に合わせている。toggleMapTileTheme()参照） */
-#map.map-tile-light {
+/* 地図タイル選択時のプレースホルダー背景（タイル読み込み中のちらつき軽減用。
+   CARTO各スタイルの基調色に合わせている。setMapTileTheme()参照） */
+#map.map-tile-light,
+#map.map-tile-voyager {
   background: #e5e3df;
 }
 
 /* Map card-header buttons (tile theme toggle + fullscreen toggle) */
 .card-header-actions {
   display: flex;
+  align-items: center;
   gap: 0.4rem;
+}
+
+/* 地図の配色トグル（ダーク/ライト/詳細）：.cat-axis-toggleのテキストボタン用
+   パディングのままだとlucideアイコン（既定24px）が大きすぎるため、アイコン専用
+   サイズに調整 */
+.map-theme-toggle .cat-axis-toggle-btn {
+  padding: 0.3rem 0.45rem;
+  display: flex;
+}
+
+.map-theme-toggle .cat-axis-toggle-btn svg {
+  width: 14px;
+  height: 14px;
 }
 
 .btn-map-fullscreen {

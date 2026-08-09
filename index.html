@@ -326,9 +326,17 @@
           <div class="card-header">
             <h3 class="card-title"><i data-lucide="navigation"></i> インタラクティブ・マップ</h3>
             <div class="card-header-actions">
-              <button type="button" class="btn btn-map-fullscreen" id="map-tile-theme-toggle" title="明るい地図に切り替える">
-                <i data-lucide="sun"></i>
-              </button>
+              <div class="cat-axis-toggle map-theme-toggle" id="map-theme-toggle" role="group" aria-label="地図の配色を切り替え">
+                <button type="button" class="cat-axis-toggle-btn active" data-theme="dark" title="ダーク">
+                  <i data-lucide="moon"></i>
+                </button>
+                <button type="button" class="cat-axis-toggle-btn" data-theme="light" title="ライト">
+                  <i data-lucide="sun"></i>
+                </button>
+                <button type="button" class="cat-axis-toggle-btn" data-theme="voyager" title="詳細（Googleマップ風）">
+                  <i data-lucide="map"></i>
+                </button>
+              </div>
               <button type="button" class="btn btn-map-fullscreen" id="map-fullscreen-toggle" title="地図を拡大表示">
                 <i data-lucide="maximize-2"></i>
               </button>
