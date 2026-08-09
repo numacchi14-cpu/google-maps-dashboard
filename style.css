@@ -993,6 +993,63 @@ header {
   z-index: 1; /* Leaflet layering fix */
 }
 
+/* Map fullscreen toggle button (card-header, next to the title) */
+.btn-map-fullscreen {
+  padding: 4px 8px;
+  font-size: 0.75rem;
+}
+
+.btn-map-fullscreen svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Map fullscreen backdrop: see index.html comment for why this lives at
+   body level instead of nested inside .dashboard-grid. */
+.map-fullscreen-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(11, 15, 25, 0.75);
+  backdrop-filter: blur(6px);
+  z-index: 9998;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.map-fullscreen-backdrop.active {
+  opacity: 1;
+  pointer-events: all;
+}
+
+/* Applied to #map-card once it has been reparented to <body> (see
+   toggleMapFullscreen() in app.js). Reparenting first is required: as a
+   descendant of .dashboard-grid (which has `transform` once `.visible` is
+   set), position:fixed would resolve against that ancestor instead of the
+   viewport. */
+.map-fullscreen-active {
+  position: fixed;
+  inset: 1.5rem;
+  z-index: 9999;
+  margin: 0;
+}
+
+.map-fullscreen-active #map {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+
+body.map-fullscreen-open {
+  overflow: hidden;
+}
+
+@media (max-width: 768px) {
+  .map-fullscreen-active {
+    inset: 0.75rem;
+  }
+}
+
 /* Leaflet Custom Styles */
 .leaflet-container {
   font-family: var(--font-body) !important;

@@ -269,6 +269,51 @@ function initMap() {
   }).addTo(map);
 }
 
+// #map-cardの元の位置（親要素・直後の兄弟要素）を、拡大表示からの復帰時に
+// 同じ場所へ戻すために一時保持する
+let mapFullscreenOriginalParent = null;
+let mapFullscreenOriginalNextSibling = null;
+
+// インタラクティブマップの拡大表示トグル（2026-08-10実装）。#map-cardは通常
+// .dashboard-grid の子孫で、.dashboard-grid は`.visible`付与後にtransformを
+// 持つため、そのままposition:fixedにしてもビューポート基準にならず
+// .dashboard-grid内に閉じ込められてしまう（transformを持つ祖先はfixed要素の
+// containing blockになるCSS仕様）。これを避けるため、拡大表示中は#map-cardを
+// 一旦<body>直下へ実際に付け替える
+function toggleMapFullscreen() {
+  const card = document.getElementById("map-card");
+  const backdrop = document.getElementById("map-fullscreen-backdrop");
+  const toggleBtn = document.getElementById("map-fullscreen-toggle");
+  const icon = toggleBtn.querySelector("[data-lucide]");
+  const enteringFullscreen = !card.classList.contains("map-fullscreen-active");
+
+  if (enteringFullscreen) {
+    mapFullscreenOriginalParent = card.parentNode;
+    mapFullscreenOriginalNextSibling = card.nextSibling;
+    document.body.appendChild(card);
+    card.classList.add("map-fullscreen-active");
+    backdrop.classList.add("active");
+    document.body.classList.add("map-fullscreen-open");
+    icon.setAttribute("data-lucide", "minimize-2");
+    toggleBtn.title = "拡大表示を終了";
+  } else {
+    card.classList.remove("map-fullscreen-active");
+    backdrop.classList.remove("active");
+    document.body.classList.remove("map-fullscreen-open");
+    if (mapFullscreenOriginalParent) {
+      mapFullscreenOriginalParent.insertBefore(card, mapFullscreenOriginalNextSibling);
+    }
+    mapFullscreenOriginalParent = null;
+    mapFullscreenOriginalNextSibling = null;
+    icon.setAttribute("data-lucide", "maximize-2");
+    toggleBtn.title = "地図を拡大表示";
+  }
+  if (typeof lucide !== "undefined") lucide.createIcons();
+  // カードのサイズが変わった直後にLeafletへ再計算させる（レイアウト確定を
+  // 待つため少し遅らせる。showDashboard()と同じ手法）
+  setTimeout(() => map.invalidateSize(), 50);
+}
+
 // 一覧テーブルのソート矢印アイコンを、現在のcurrentSortColumn/currentSortDirectionに
 // 合わせて更新する。列ヘッダークリック時と、初期表示（デフォルトソートの反映）の両方から呼ぶ。
 function updateSortIcons() {
@@ -320,6 +365,8 @@ function setupEventListeners() {
   const btnGeminiLocCopyPrompt = document.getElementById("btn-gemini-loc-copy-prompt");
   const btnGeminiLocApply = document.getElementById("btn-gemini-loc-apply");
   const catAxisToggle = document.getElementById("cat-axis-toggle");
+  const mapFullscreenToggle = document.getElementById("map-fullscreen-toggle");
+  const mapFullscreenBackdrop = document.getElementById("map-fullscreen-backdrop");
   const btnManualAdd = document.getElementById("btn-manual-add");
   const btnManualAddEmpty = document.getElementById("btn-manual-add-empty");
   const manualAddOverlay = document.getElementById("manual-add-overlay");
@@ -384,6 +431,19 @@ function setupEventListeners() {
     toolbarToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
     toolbarToggleIcon.setAttribute("data-lucide", collapsed ? "chevron-down" : "chevron-up");
     lucide.createIcons();
+  });
+
+  // インタラクティブマップの拡大表示（2026-08-10実装）
+  mapFullscreenToggle.addEventListener("click", toggleMapFullscreen);
+  mapFullscreenBackdrop.addEventListener("click", () => {
+    if (document.getElementById("map-card").classList.contains("map-fullscreen-active")) {
+      toggleMapFullscreen();
+    }
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && document.getElementById("map-card").classList.contains("map-fullscreen-active")) {
+      toggleMapFullscreen();
+    }
   });
 
   // モバイル専用のhero-card英語説明の折りたたみ（2026-08-01実装）。デスクトップでは

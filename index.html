@@ -322,9 +322,12 @@
       <!-- Bottom Layout for Map & Charts (3 Column Row) -->
       <div class="bottom-grid">
         <!-- Interactive Map -->
-        <div class="glass-card">
+        <div class="glass-card" id="map-card">
           <div class="card-header">
             <h3 class="card-title"><i data-lucide="navigation"></i> インタラクティブ・マップ</h3>
+            <button type="button" class="btn btn-map-fullscreen" id="map-fullscreen-toggle" title="地図を拡大表示">
+              <i data-lucide="maximize-2"></i>
+            </button>
           </div>
           <div id="map"></div>
         </div>
@@ -402,6 +405,14 @@
       <a href="https://github.com/numacchi14-cpu/google-maps-dashboard" target="_blank" rel="noopener noreferrer">GitHub</a>
     </footer>
   </div>
+
+  <!-- Map fullscreen backdrop. Placed at body level (outside .app-container/
+       .dashboard-grid) because .dashboard-grid has a `transform` once
+       `.visible` is applied, which would otherwise make it the containing
+       block for any position:fixed descendant and break true fullscreen
+       sizing. #map-card itself is reparented to <body> via JS when entering
+       fullscreen for the same reason. -->
+  <div class="map-fullscreen-backdrop" id="map-fullscreen-backdrop"></div>
 
   <!-- Loading Screen -->
   <div class="loading-overlay" id="loading-overlay">
