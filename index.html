@@ -280,6 +280,9 @@
               <span class="date-range-sep">〜</span>
               <input type="date" id="filter-date-to" class="date-input" aria-label="最終更新日（終了）">
             </div>
+            <button class="btn btn-filter-clear" id="btn-clear-list-filters" type="button" title="検索・絞り込み条件をすべてクリアします">
+              <i data-lucide="filter-x"></i> 条件をすべてクリア
+            </button>
           </div>
         </div>
 
@@ -750,12 +753,17 @@
   <!-- カテゴリーのクロス集計 Modal（Google連動カテゴリー×マイカテゴリーの件数を突き合わせて、
        つけ間違いの可能性がある組み合わせを見つけるための集計表。2026-08-11実装） -->
   <div class="modal-overlay" id="category-crosstab-overlay">
-    <div class="glass-card modal-card modal-card-wide">
+    <div class="glass-card modal-card modal-card-wide" id="category-crosstab-modal">
       <div class="card-header">
         <h3 class="card-title"><i data-lucide="grid-3x3"></i> カテゴリーのクロス集計</h3>
-        <button class="modal-close-btn" id="category-crosstab-close" type="button" aria-label="閉じる">
-          <i data-lucide="x"></i>
-        </button>
+        <div class="modal-header-actions">
+          <button class="modal-close-btn crosstab-fullscreen-btn" id="category-crosstab-fullscreen" type="button" aria-label="フルスクリーン表示" aria-pressed="false" title="フルスクリーン表示">
+            <i data-lucide="maximize-2"></i>
+          </button>
+          <button class="modal-close-btn" id="category-crosstab-close" type="button" aria-label="閉じる">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
       </div>
       <p class="modal-desc">
         縦がGoogle連動カテゴリー、横がマイカテゴリーの件数です。同じGoogle連動カテゴリーの行で件数が複数のマイカテゴリーに割れている場合、つけ間違いの可能性があります（緑色のセルは、その行で最も多いマイカテゴリーの目印です）。件数をクリックすると、その組み合わせだけをスポット一覧で確認できます。

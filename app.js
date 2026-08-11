@@ -397,6 +397,7 @@ function setupEventListeners() {
   const filterWishlistFulfilled = document.getElementById("filter-wishlist-fulfilled");
   const filterDateFrom = document.getElementById("filter-date-from");
   const filterDateTo = document.getElementById("filter-date-to");
+  const btnClearListFilters = document.getElementById("btn-clear-list-filters");
   const btnExportCsv = document.getElementById("btn-export-csv");
   const btnExportJson = document.getElementById("btn-export-json");
   const btnShareCard = document.getElementById("btn-share-card");
@@ -457,6 +458,7 @@ function setupEventListeners() {
   const btnCategoryCrosstab = document.getElementById("btn-category-crosstab");
   const categoryCrosstabOverlay = document.getElementById("category-crosstab-overlay");
   const categoryCrosstabClose = document.getElementById("category-crosstab-close");
+  const categoryCrosstabFullscreen = document.getElementById("category-crosstab-fullscreen");
   const paginationPrev = document.getElementById("pagination-prev");
   const paginationNext = document.getElementById("pagination-next");
 
@@ -560,6 +562,7 @@ function setupEventListeners() {
   filterWishlistFulfilled.addEventListener("change", filterAndRenderFromPage1);
   filterDateFrom.addEventListener("change", filterAndRenderFromPage1);
   filterDateTo.addEventListener("change", filterAndRenderFromPage1);
+  btnClearListFilters.addEventListener("click", clearPlaceListFilters);
 
   // Sorting
   document.querySelectorAll("th[data-sort]").forEach(th => {
@@ -850,8 +853,17 @@ function setupEventListeners() {
   // カテゴリーのクロス集計（Google連動×マイカテゴリーの件数を突き合わせてつけ間違いを探す）
   btnCategoryCrosstab.addEventListener("click", openCategoryCrosstabModal);
   categoryCrosstabClose.addEventListener("click", closeCategoryCrosstabModal);
+  categoryCrosstabFullscreen.addEventListener("click", toggleCategoryCrosstabFullscreen);
   categoryCrosstabOverlay.addEventListener("click", (e) => {
     if (e.target === categoryCrosstabOverlay) closeCategoryCrosstabModal();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || !categoryCrosstabOverlay.classList.contains("active")) return;
+    if (document.getElementById("category-crosstab-modal").classList.contains("crosstab-fullscreen-active")) {
+      setCategoryCrosstabFullscreen(false);
+    } else {
+      closeCategoryCrosstabModal();
+    }
   });
 
   // テーブルのページネーション（実データ量が多い場合の描画負荷対策）
@@ -3577,6 +3589,23 @@ function applyCategoryCrosstabFilter(googleKey, myKey) {
   scrollTableToTop();
 }
 
+// スポット一覧の検索・絞り込み条件だけを初期状態へ戻す。並び順は利用者が選んだ
+// まま維持するので、「条件を外して全件を見たい」場合に現在の見やすい順序を失わない。
+function clearPlaceListFilters() {
+  document.getElementById("search-box").value = "";
+  document.getElementById("filter-prefecture").value = "";
+  document.getElementById("filter-category-google").value = "";
+  document.getElementById("filter-category-my").value = "";
+  document.getElementById("filter-rating").value = "";
+  document.getElementById("filter-wishlist-list").value = "";
+  document.getElementById("filter-wishlist-fulfilled").checked = false;
+  document.getElementById("filter-date-from").value = "";
+  document.getElementById("filter-date-to").value = "";
+  currentTablePage = 1;
+  setupDropdownFilters();
+  filterAndRender();
+}
+
 function renderCategoryCrosstab() {
   const wrapper = document.getElementById("category-crosstab-table-wrapper");
   if (!wrapper) return;
@@ -3659,7 +3688,25 @@ function openCategoryCrosstabModal() {
 }
 
 function closeCategoryCrosstabModal() {
+  setCategoryCrosstabFullscreen(false);
   document.getElementById("category-crosstab-overlay").classList.remove("active");
+}
+
+function setCategoryCrosstabFullscreen(isFullscreen) {
+  const modal = document.getElementById("category-crosstab-modal");
+  const toggleBtn = document.getElementById("category-crosstab-fullscreen");
+  const icon = toggleBtn.querySelector("[data-lucide]");
+  modal.classList.toggle("crosstab-fullscreen-active", isFullscreen);
+  toggleBtn.setAttribute("aria-pressed", isFullscreen ? "true" : "false");
+  toggleBtn.setAttribute("aria-label", isFullscreen ? "フルスクリーン表示を終了" : "フルスクリーン表示");
+  toggleBtn.title = isFullscreen ? "フルスクリーン表示を終了" : "フルスクリーン表示";
+  icon.setAttribute("data-lucide", isFullscreen ? "minimize-2" : "maximize-2");
+  if (typeof lucide !== "undefined") lucide.createIcons();
+}
+
+function toggleCategoryCrosstabFullscreen() {
+  const modal = document.getElementById("category-crosstab-modal");
+  setCategoryCrosstabFullscreen(!modal.classList.contains("crosstab-fullscreen-active"));
 }
 
 // --- スポット情報のGemini検索（手動追加の補助、2026-07-24実装）---

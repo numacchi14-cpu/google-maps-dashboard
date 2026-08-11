@@ -744,6 +744,15 @@ header {
   flex-wrap: wrap;
 }
 
+.btn-filter-clear {
+  white-space: nowrap;
+}
+
+.btn-filter-clear svg {
+  width: 16px;
+  height: 16px;
+}
+
 .search-wrapper {
   position: relative;
   flex: 1;
@@ -1519,6 +1528,41 @@ tr:hover td {
   border: 1px solid var(--border-color);
   border-radius: 8px;
   background: var(--bg-tertiary);
+}
+
+.modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.crosstab-fullscreen-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* クロス集計は行・列が多くなりやすいため、モーダルのまま画面全体を使えるようにする。
+   overlay自体はもともとbody直下のfixed要素なので、地図のようなDOM付け替えは不要。 */
+.modal-card.crosstab-fullscreen-active {
+  width: calc(100vw - 3rem);
+  max-width: none;
+  height: calc(100dvh - 3rem);
+  max-height: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.crosstab-fullscreen-active .crosstab-table-wrapper {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+}
+
+@media (max-width: 768px) {
+  .modal-card.crosstab-fullscreen-active {
+    width: calc(100vw - 1.5rem);
+    height: calc(100dvh - 1.5rem);
+  }
 }
 
 .crosstab-table {
