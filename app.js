@@ -4087,7 +4087,7 @@ function setupDropdownFilters() {
   if ((notFromListCount > 0 && notFromListCount < wishlistScope.length) || currentWishlistList === "__none__") {
     const notFromListOpt = document.createElement("option");
     notFromListOpt.value = "__none__";
-    notFromListOpt.textContent = `リスト由来ではない (${notFromListCount})`;
+    notFromListOpt.textContent = `リスト以外 (${notFromListCount})`;
     filterWishlistList.appendChild(notFromListOpt);
   }
   const wishlistListCounts = {};
