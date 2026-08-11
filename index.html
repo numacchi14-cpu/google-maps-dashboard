@@ -101,9 +101,17 @@
               <i data-lucide="chevron-down" id="toolbar-toggle-icon"></i>
             </button>
             <!-- ボタンの並びは実際の登録手順に沿って3グループ化（2026-07-28、ユーザー
-                 フィードバックにより再編）：①メイン（Takeoutを開く→取り込み→分類）
-                 ②サブ（Takeout上限を補う手動追加・検索・座標補完）③管理系（設定・
-                 エクスポート・ゴミ箱・リセット、頻度は低いので最後）。 -->
+                 フィードバックにより再編／2026-08-11、Google連動カテゴリーと座標補完の
+                 順序を再入れ替え）：①メイン（Takeoutを開く→取り込み→座標補完→分類）
+                 ②サブ（Takeout上限を補う手動追加・検索）③管理系（設定・エクスポート・
+                 ゴミ箱・リセット、頻度は低いので最後）。
+                 「リンク・緯度経度をGeminiで調べる」を「Google連動カテゴリーをGeminiで
+                 調べる」より前に移動：「行ってみたい」リストCSV取り込み由来のスポットは
+                 住所が空のまま登録されるため、先に住所無しでカテゴリーを判定してしまうと
+                 店名だけを手がかりにした精度の低い推測になる（カテゴリー取得は一度
+                 googleCategoryRawが付くと対象から外れるため、後から住所が埋まっても
+                 自動で再判定されない）。座標補完を先に済ませておけば、カテゴリー判定に
+                 住所も使えるようになり精度が上がる。 -->
             <div class="action-buttons collapsed" id="toolbar-buttons">
               <div class="action-button-group">
                 <a class="btn" href="https://takeout.google.com/settings/takeout" target="_blank" rel="noopener noreferrer">
@@ -111,6 +119,9 @@
                 </a>
                 <button class="btn" id="btn-add-files" type="button">
                   <i data-lucide="upload"></i> ファイルを追加読み込み
+                </button>
+                <button class="btn" id="btn-gemini-location" type="button">
+                  <i data-lucide="crosshair"></i> リンク・緯度経度をGeminiで調べる
                 </button>
                 <button class="btn" id="btn-gemini-category" type="button">
                   <i data-lucide="sparkles"></i> Google連動カテゴリーをGeminiで調べる
@@ -122,9 +133,6 @@
                 </button>
                 <button class="btn" id="btn-place-lookup" type="button">
                   <i data-lucide="map-pin-plus"></i> スポット情報をGeminiで調べる
-                </button>
-                <button class="btn" id="btn-gemini-location" type="button">
-                  <i data-lucide="crosshair"></i> リンク・緯度経度をGeminiで調べる
                 </button>
               </div>
               <div class="action-button-group">
