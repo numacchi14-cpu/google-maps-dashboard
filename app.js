@@ -446,6 +446,11 @@ function setupEventListeners() {
   const unknownSpotSelectAll = document.getElementById("unknown-spot-select-all");
   const btnUnknownSpotDelete = document.getElementById("btn-unknown-spot-delete");
   const btnUnknownSpotKeep = document.getElementById("btn-unknown-spot-keep");
+  const wishlistRemovedOverlay = document.getElementById("wishlist-removed-overlay");
+  const wishlistRemovedClose = document.getElementById("wishlist-removed-close");
+  const wishlistRemovedSelectAll = document.getElementById("wishlist-removed-select-all");
+  const btnWishlistRemovedDelete = document.getElementById("btn-wishlist-removed-delete");
+  const btnWishlistRemovedKeep = document.getElementById("btn-wishlist-removed-keep");
   const btnDeletedSpots = document.getElementById("btn-deleted-spots");
   const deletedSpotsOverlay = document.getElementById("deleted-spots-overlay");
   const deletedSpotsClose = document.getElementById("deleted-spots-close");
@@ -827,6 +832,32 @@ function setupEventListeners() {
     setupDropdownFilters();
     filterAndRender();
     closeUnknownSpotModal();
+  });
+
+  // 行きたいリストから外れた候補の確認（Googleマップ側でリストから外されたと推測される
+  // スポットの削除確認。行きたいリストCSV再取り込み直後に該当があれば自動表示）
+  wishlistRemovedClose.addEventListener("click", closeWishlistRemovedModal);
+  btnWishlistRemovedKeep.addEventListener("click", closeWishlistRemovedModal);
+  wishlistRemovedOverlay.addEventListener("click", (e) => {
+    if (e.target === wishlistRemovedOverlay) closeWishlistRemovedModal();
+  });
+  wishlistRemovedSelectAll.addEventListener("change", (e) => {
+    document.querySelectorAll(".wishlist-removed-checkbox").forEach(cb => {
+      cb.checked = e.target.checked;
+    });
+  });
+  btnWishlistRemovedDelete.addEventListener("click", () => {
+    const idsToDelete = Array.from(document.querySelectorAll(".wishlist-removed-checkbox:checked"))
+      .map(cb => cb.dataset.id);
+    if (idsToDelete.length === 0) {
+      alert("削除するスポットを選択してください。");
+      return;
+    }
+    if (!confirm(`選択した${idsToDelete.length}件を削除します（「削除済みスポット」から復元できます）。よろしいですか？`)) return;
+    moveToTrash(idsToDelete);
+    setupDropdownFilters();
+    filterAndRender();
+    closeWishlistRemovedModal();
   });
 
   // 削除済みスポット（ゴミ箱）
@@ -1346,6 +1377,10 @@ async function handleFiles(files) {
   let manualAdded = 0;
   let manualUpdated = 0;
   let unresolvedMyCategoryNames = [];
+  // 行きたいリスト由来のCSVを取り込んだ場合、リスト名ごとに「今回のCSVに実在した
+  // マッチキー」を集める（getWishlistRemovedCandidates参照）。複数のリストCSVを
+  // 同時に取り込んでも、それぞれ独立して比較できるようリスト名をキーにする。
+  const wishlistImportKeysByName = new Map();
 
   // The whole body runs under try/finally so showLoading(false) always fires,
   // even if something downstream of parsing (e.g. dedup/render) throws on
@@ -1398,6 +1433,9 @@ async function handleFiles(files) {
             const listName = file.name.replace(/\.csv$/i, "");
             const savedListPlaces = parseSavedListCSV(rows, listName);
             newPlaces = newPlaces.concat(savedListPlaces);
+            const keySet = wishlistImportKeysByName.get(listName) || new Set();
+            savedListPlaces.forEach(p => keySet.add(buildPlaceMatchKey(p)));
+            wishlistImportKeysByName.set(listName, keySet);
             continue;
           }
         }
@@ -1419,6 +1457,13 @@ async function handleFiles(files) {
       newPlaces = newPlaces.filter(p => !deletedKeySet.has(buildPlaceMatchKey(p)));
       trashSuppressedCount = beforeCount - newPlaces.length;
     }
+
+    // 行きたいリストCSVを取り込んだ場合、マージ前（＝既存の登録済みデータ）を基準に
+    // 「以前はこのリストにいたが今回のCSVには無い」候補を検出する（マージ後だと
+    // 判定対象が変わってしまうため、newPlacesを合流させる前に確認する）。
+    const wishlistRemovedCandidates = wishlistImportKeysByName.size > 0
+      ? getWishlistRemovedCandidates(wishlistImportKeysByName)
+      : [];
 
     const hasNewPlaces = newPlaces.length > 0;
     if (hasNewPlaces) {
@@ -1453,8 +1498,12 @@ async function handleFiles(files) {
 
     // 閉店・削除済みスポット等でGoogle側から名前を取得できなかった項目が今回の
     // 取り込みに含まれていないか確認する（手動入力CSVのみの取り込みでは発生しないため対象外）。
+    // 行きたいリストから外れた候補の確認はこの後に続けて開きたいが、モーダルが重なると
+    // 分かりにくいため、不明なスポットが無い場合のみ自動表示する（else if）。
     if (hasNewPlaces && getUnknownSpots().length > 0) {
       openUnknownSpotModal();
+    } else if (wishlistRemovedCandidates.length > 0) {
+      openWishlistRemovedModal(wishlistRemovedCandidates);
     }
   } catch (e) {
     console.error("Unexpected error while importing files:", e);
@@ -4014,6 +4063,81 @@ function closeUnknownSpotModal() {
   document.getElementById("unknown-spot-overlay").classList.remove("active");
 }
 
+// --- 行きたいリストから外れた候補の確認（2026-08-11実装）---
+// Googleマップのカスタムリスト（「行ってみたい」等）CSVを再取り込みした際、以前は
+// そのリストに含まれていたのに今回のCSVには無くなっているスポットを検出する
+// （Googleマップ側でユーザーがリストから外した、と推測できる）。matchKeysByListNameは
+// handleFiles側で「今回パースしたリストCSVごとの現在のマッチキー集合」を渡す。
+// 対象は`source === "行きたいリスト"`（実際にそのCSV取り込みで登録された行）に限定する
+// ——手動追加フォームの「行ってみたい」チェックも同じwishlistListName文字列("行ってみたい")
+// を使うため、限定しないとCSV由来ではない手入力の行まで「リストから消えた」と誤検出して
+// 毎回候補に出てしまう。また、既に実際に訪れて評価・クチコミが付いている
+// （「行きたい→行った」）スポットも対象外にする——リストから外れていても実際の訪問記録
+// なので、削除するとレビューごと失われてしまうため。
+function getWishlistRemovedCandidates(matchKeysByListName) {
+  const candidates = [];
+  places.forEach(p => {
+    if (!p.wishlistListName || p.source !== "行きたいリスト") return;
+    const currentKeys = matchKeysByListName.get(p.wishlistListName);
+    if (!currentKeys) return; // 今回のインポートに含まれないリストは対象外
+    const fulfilled = p.rating != null || !!p.comment;
+    if (fulfilled) return;
+    if (currentKeys.has(buildPlaceMatchKey(p))) return; // 今回のCSVにもまだ存在する
+    candidates.push(p);
+  });
+  return candidates;
+}
+
+function renderWishlistRemovedList(spots) {
+  const listEl = document.getElementById("wishlist-removed-list");
+  listEl.innerHTML = "";
+
+  if (spots.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "unknown-spot-empty";
+    empty.textContent = "対象のスポットはありません。";
+    listEl.appendChild(empty);
+    return;
+  }
+
+  spots.forEach(spot => {
+    const item = document.createElement("div");
+    item.className = "unknown-spot-item";
+
+    const label = document.createElement("label");
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.className = "wishlist-removed-checkbox";
+    checkbox.checked = true;
+    checkbox.dataset.id = spot.id;
+    label.appendChild(checkbox);
+
+    const info = document.createElement("div");
+    info.className = "unknown-spot-item-info";
+    const nameEl = document.createElement("strong");
+    nameEl.textContent = spot.name;
+    info.appendChild(nameEl);
+    const metaEl = document.createElement("span");
+    const metaParts = [`「${spot.wishlistListName}」から`, spot.address || "住所不明"].filter(Boolean);
+    metaEl.textContent = metaParts.join(" / ");
+    info.appendChild(metaEl);
+    label.appendChild(info);
+
+    item.appendChild(label);
+    listEl.appendChild(item);
+  });
+}
+
+function openWishlistRemovedModal(candidates) {
+  renderWishlistRemovedList(candidates);
+  document.getElementById("wishlist-removed-select-all").checked = true;
+  document.getElementById("wishlist-removed-overlay").classList.add("active");
+}
+
+function closeWishlistRemovedModal() {
+  document.getElementById("wishlist-removed-overlay").classList.remove("active");
+}
+
 // Populate dropdown filters based on loaded data
 // 絞り込み行の各ドロップダウンの選択肢・件数を組み立てる（2026-07-28実装：段階的な
 // 絞り込みに対応）。「都道府県を福岡県に絞ったら、他のドロップダウンの選択肢・件数も
@@ -6049,5 +6173,5 @@ function loadSampleData() {
 
 // Expose pure logic functions for Node-based tests (no-op in the browser).
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { classifyCategory, extractPrefecture, parseAppBackupJSON, getAllCategories, customCategories, geminiCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, updateManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, summarizeUnresolvedMyCategoryNames, getOrCreateGeminiCategory, buildGeminiCategoryPrompt, extractJSONArrayFromGeminiResponse, parseGeminiCategoryResponse, applyGeminiCategoryResults, getGeminiLocationIncompletePlaces, markLocationRetryPriority, isLocationLookupStillNeeded, buildGeminiLocationPrompt, parseGeminiLocationResponse, applyGeminiLocationResults, parsePlaceLookupQueries, buildPlaceLookupPrompt, parsePlaceLookupResponse, checkPlaceLookupCoordinateMismatch, buildManualPlaceFieldsFromLookupCandidate, deduplicatePlaces, buildPlaceMatchKey, isSavedListCSV, parseSavedListCSV, buildFilterMatchersFromValues, placesMatchingFiltersExcept, findPossibleDuplicates, normalizeAddressForCompare, places, shouldScheduleLocalCacheWrite };
+  module.exports = { classifyCategory, extractPrefecture, parseAppBackupJSON, getAllCategories, customCategories, geminiCategories, matchesDateRange, parseCoordinatePair, buildManualPlaceFields, updateManualPlaceFields, parseCSVRows, csvField, parseCSVData, isAppCSVBackup, parseAppCSVBackup, summarizeUnresolvedMyCategoryNames, getOrCreateGeminiCategory, buildGeminiCategoryPrompt, extractJSONArrayFromGeminiResponse, parseGeminiCategoryResponse, applyGeminiCategoryResults, getGeminiLocationIncompletePlaces, markLocationRetryPriority, isLocationLookupStillNeeded, buildGeminiLocationPrompt, parseGeminiLocationResponse, applyGeminiLocationResults, parsePlaceLookupQueries, buildPlaceLookupPrompt, parsePlaceLookupResponse, checkPlaceLookupCoordinateMismatch, buildManualPlaceFieldsFromLookupCandidate, deduplicatePlaces, buildPlaceMatchKey, isSavedListCSV, parseSavedListCSV, buildFilterMatchersFromValues, placesMatchingFiltersExcept, findPossibleDuplicates, normalizeAddressForCompare, getWishlistRemovedCandidates, places, shouldScheduleLocalCacheWrite };
 }

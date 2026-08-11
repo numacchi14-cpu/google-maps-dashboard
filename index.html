@@ -707,6 +707,35 @@
     </div>
   </div>
 
+  <!-- 行きたいリストから外れた候補の確認 Modal（Googleマップのカスタムリスト（「行ってみたい」等）
+       CSVを再取り込みした際、以前はリストにいたが今回のCSVには無くなっているスポットの削除確認。
+       まだ訪れていない（評価・クチコミが無い）スポットのみが対象。2026-08-11実装） -->
+  <div class="modal-overlay" id="wishlist-removed-overlay">
+    <div class="glass-card modal-card">
+      <div class="card-header">
+        <h3 class="card-title"><i data-lucide="list-x"></i> 行きたいリストから外れた候補の確認</h3>
+        <button class="modal-close-btn" id="wishlist-removed-close" type="button" aria-label="閉じる">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <p class="modal-desc">
+        今回読み込んだリストのCSVに、以前登録されていたスポットの一部が含まれていません。Googleマップ側でリストから外された可能性があります（まだ実際に訪れていない＝評価・クチコミが無いスポットのみを対象に表示しています）。
+        削除したいものにチェックを入れて「選択した項目を削除」を押してください。何もしなければ一覧にそのまま残ります。
+      </p>
+      <label class="unknown-spot-select-all">
+        <input type="checkbox" id="wishlist-removed-select-all" checked>
+        すべて選択／解除
+      </label>
+      <div id="wishlist-removed-list" class="unknown-spot-list"></div>
+      <div class="unknown-spot-actions">
+        <button class="btn" id="btn-wishlist-removed-keep" type="button">何もせず閉じる</button>
+        <button class="btn" id="btn-wishlist-removed-delete" type="button" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: #ef4444;">
+          <i data-lucide="trash-2"></i> 選択した項目を削除
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- 削除済みスポット（ゴミ箱）Modal -->
   <div class="modal-overlay" id="deleted-spots-overlay">
     <div class="glass-card modal-card">
