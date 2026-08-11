@@ -100,18 +100,19 @@
               <span><i data-lucide="sliders-horizontal"></i> 操作メニュー</span>
               <i data-lucide="chevron-down" id="toolbar-toggle-icon"></i>
             </button>
-            <!-- ボタンの並びは実際の登録手順に沿って3グループ化（2026-07-28、ユーザー
-                 フィードバックにより再編／2026-08-11、Google連動カテゴリーと座標補完の
-                 順序を再入れ替え）：①メイン（Takeoutを開く→取り込み→座標補完→分類）
-                 ②サブ（Takeout上限を補う手動追加・検索）③管理系（設定・エクスポート・
-                 ゴミ箱・リセット、頻度は低いので最後）。
-                 「リンク・緯度経度をGeminiで調べる」を「Google連動カテゴリーをGeminiで
-                 調べる」より前に移動：「行ってみたい」リストCSV取り込み由来のスポットは
-                 住所が空のまま登録されるため、先に住所無しでカテゴリーを判定してしまうと
-                 店名だけを手がかりにした精度の低い推測になる（カテゴリー取得は一度
-                 googleCategoryRawが付くと対象から外れるため、後から住所が埋まっても
-                 自動で再判定されない）。座標補完を先に済ませておけば、カテゴリー判定に
-                 住所も使えるようになり精度が上がる。 -->
+            <!-- ボタンの並びは4グループ化（2026-08-11、ユーザー指定により再編）：
+                 ①取り込み（Takeoutを開く／ファイル読み込み／手動追加）
+                 ②Geminiで調べる系（スポット検索／リンク・緯度経度／Google連動カテゴリー。
+                 　リンク・緯度経度を連動カテゴリーより前に置く理由は8/11の変更と同じ——
+                 　「行ってみたい」リストCSV取り込み由来のスポットは住所が空のまま登録され、
+                 　先に住所無しでカテゴリーを判定すると店名だけを手がかりにした精度の低い
+                 　推測になる。カテゴリー取得は一度googleCategoryRawが付くと対象から外れる
+                 　ため、後から住所が埋まっても自動で再判定されない）
+                 ③エクスポート・削除済み確認（SNSシェア画像／CSV／JSON／削除済みスポット）
+                 ④設定・分析・確認（マイカテゴリーの管理／クロス集計／緯度経度要確認／
+                 　重複候補の確認）
+                 ⑤リセットのみ独立（誤操作時の影響が大きい危険操作のため、他グループの
+                 　どこにも混ぜずに従来通り最後に単独配置）。 -->
             <div class="action-buttons collapsed" id="toolbar-buttons">
               <div class="action-button-group">
                 <a class="btn" href="https://takeout.google.com/settings/takeout" target="_blank" rel="noopener noreferrer">
@@ -119,6 +120,14 @@
                 </a>
                 <button class="btn" id="btn-add-files" type="button">
                   <i data-lucide="upload"></i> ファイルを追加読み込み
+                </button>
+                <button class="btn" id="btn-manual-add" type="button">
+                  <i data-lucide="plus"></i> ログを手動で追加
+                </button>
+              </div>
+              <div class="action-button-group">
+                <button class="btn" id="btn-place-lookup" type="button">
+                  <i data-lucide="map-pin-plus"></i> スポット情報をGeminiで調べる
                 </button>
                 <button class="btn" id="btn-gemini-location" type="button">
                   <i data-lucide="crosshair"></i> リンク・緯度経度をGeminiで調べる
@@ -128,19 +137,8 @@
                 </button>
               </div>
               <div class="action-button-group">
-                <button class="btn" id="btn-manual-add" type="button">
-                  <i data-lucide="plus"></i> ログを手動で追加
-                </button>
-                <button class="btn" id="btn-place-lookup" type="button">
-                  <i data-lucide="map-pin-plus"></i> スポット情報をGeminiで調べる
-                </button>
-              </div>
-              <div class="action-button-group">
-                <button class="btn" id="btn-category-settings" type="button">
-                  <i data-lucide="settings"></i> マイカテゴリー設定
-                </button>
-                <button class="btn" id="btn-category-crosstab" type="button">
-                  <i data-lucide="grid-3x3"></i> カテゴリーのクロス集計
+                <button class="btn" id="btn-share-card" type="button">
+                  <i data-lucide="image"></i> SNSシェア画像を作る
                 </button>
                 <button class="btn" id="btn-export-csv">
                   <i data-lucide="download"></i> CSVエクスポート
@@ -148,8 +146,16 @@
                 <button class="btn" id="btn-export-json">
                   <i data-lucide="file-json"></i> JSONエクスポート
                 </button>
-                <button class="btn" id="btn-share-card" type="button">
-                  <i data-lucide="image"></i> SNSシェア画像を作る
+                <button class="btn" id="btn-deleted-spots" type="button">
+                  <i data-lucide="undo-2"></i> 削除済みスポット<span id="deleted-spots-count" class="deleted-spots-badge"></span>
+                </button>
+              </div>
+              <div class="action-button-group">
+                <button class="btn" id="btn-category-settings" type="button">
+                  <i data-lucide="settings"></i> マイカテゴリーの管理
+                </button>
+                <button class="btn" id="btn-category-crosstab" type="button">
+                  <i data-lucide="grid-3x3"></i> カテゴリーのクロス集計
                 </button>
                 <button class="btn" id="btn-location-review" type="button">
                   <i data-lucide="alert-triangle"></i> 緯度経度 要確認<span id="location-review-count" class="deleted-spots-badge"></span>
@@ -157,9 +163,8 @@
                 <button class="btn" id="btn-duplicate-candidates" type="button">
                   <i data-lucide="copy-check"></i> 重複候補の確認<span id="duplicate-candidates-count" class="deleted-spots-badge"></span>
                 </button>
-                <button class="btn" id="btn-deleted-spots" type="button">
-                  <i data-lucide="undo-2"></i> 削除済みスポット<span id="deleted-spots-count" class="deleted-spots-badge"></span>
-                </button>
+              </div>
+              <div class="action-button-group">
                 <button class="btn btn-danger" id="btn-reset" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: #ef4444;">
                   <i data-lucide="trash-2"></i> リセット
                 </button>

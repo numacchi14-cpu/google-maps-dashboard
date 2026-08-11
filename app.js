@@ -1447,7 +1447,7 @@ async function handleFiles(files) {
     if (unresolvedMyCategoryNames.length > 0) {
       alert(
         `マイカテゴリー ${summarizeUnresolvedMyCategoryNames(unresolvedMyCategoryNames)} は未登録のため反映されませんでした。\n` +
-        `先に「マイカテゴリー設定」で作成してから、もう一度CSVを読み込んでください。`
+        `先に「マイカテゴリーの管理」で作成してから、もう一度CSVを読み込んでください。`
       );
     }
 
