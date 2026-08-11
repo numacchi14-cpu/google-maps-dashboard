@@ -1010,7 +1010,7 @@ function openManualAdd(place) {
     document.getElementById("manual-address").value = place.address || "";
     document.getElementById("manual-rating").value = place.rating || "";
     document.getElementById("manual-comment").value = place.comment || "";
-    document.getElementById("manual-url").value = place.url || "";
+    document.getElementById("manual-url").value = sanitizeMapsUrl(place.url || "");
     document.getElementById("manual-date").value = place.publishTime ? place.publishTime.replace(/\//g, "-") : "";
     document.getElementById("manual-coords").value = (place.lat && place.lng) ? `${place.lat}, ${place.lng}` : "";
     document.getElementById("manual-wishlist").checked = !!place.wishlistListName;
@@ -1526,20 +1526,33 @@ function extractAddressRobustly(props) {
   return "";
 }
 
+// Gemini等の出力をそのまま貼り付けて作られたCSV/JSONでは、URLが素のリンクではなく
+// Markdownリンク表記 "[https://...](https://...)" のまま入っていることがある（ユーザー
+// 報告：外部スクリプトで作った取り込み用JSONの googleMapsUrl がこの形で、一覧の
+// 「Googleマップで見る」リンクが "[" から始まる文字列を相対パスとして解釈してしまい、
+// アプリのドメイン配下の404 URLになっていた）。<a href>に使う前・保存する前にこの
+// 表記を検出したら、括弧内の実URL部分だけを取り出す。
+function sanitizeMapsUrl(raw) {
+  if (typeof raw !== "string") return raw || "";
+  const trimmed = raw.trim();
+  const mdLinkMatch = trimmed.match(/^\[[^\]]*\]\((https?:\/\/[^\s)]+)\)$/);
+  return mdLinkMatch ? mdLinkMatch[1] : trimmed;
+}
+
 function extractUrlRobustly(props) {
   const directKeys = [
     "URL", "url", "googleMapsUrl", "GoogleMapsUrl", "Google Maps URL", "link", "Link",
     "リンク", "マップリンク", "googleMapsLink", "GoogleMapsLink", "google_maps_url"
   ];
   let val = getRobustValue(props, directKeys);
-  if (val && typeof val === 'string') return val;
+  if (val && typeof val === 'string') return sanitizeMapsUrl(val);
 
   const locKeys = ["Location", "location", "Place", "place", "場所"];
   for (const lKey of locKeys) {
     const loc = props[lKey];
     if (loc && typeof loc === 'object') {
       const nestedVal = loc["url"] || loc["URL"] || loc["googleMapsUrl"] || loc["link"] || loc["リンク"];
-      if (nestedVal && typeof nestedVal === 'string') return nestedVal;
+      if (nestedVal && typeof nestedVal === 'string') return sanitizeMapsUrl(nestedVal);
     }
   }
 
@@ -1889,7 +1902,7 @@ function parseAppBackupJSON(json) {
       myCategory: myCategory,
       rating: item.rating ?? null,
       comment: item.comment || "",
-      url: item.googleMapsUrl || "",
+      url: sanitizeMapsUrl(item.googleMapsUrl || ""),
       source: item.source || "JSONバックアップ復元",
       publishTime: item.publishTime || "",
       updateTime: item.updateTime || "",
@@ -1990,7 +2003,7 @@ function parseAppCSVBackup(rows) {
       myCategory: myCategory,
       rating: ratingRaw ? parseRatingValue(ratingRaw) : null,
       comment: comment,
-      url: csvField(row, urlIdx),
+      url: sanitizeMapsUrl(csvField(row, urlIdx)),
       source: csvField(row, sourceIdx) || "CSVインポート",
       // Excel等で編集された日付は "2021/1/5" のようにゼロ埋めが崩れて返ってくることがあるため、
       // 他の取り込み経路（JSON復元・手動追加フォーム等）と同じくformatDateStringで
@@ -2071,7 +2084,7 @@ function parseCSVData(csvText) {
       myCategory: null,
       rating: rating,
       comment: comment,
-      url: url,
+      url: sanitizeMapsUrl(url),
       source: "CSVインポート",
       publishTime: publishTime,
       updateTime: updateTime
@@ -2134,7 +2147,7 @@ function parseSavedListCSV(rows, listName) {
       myCategory: null,
       rating: null,
       comment: "",
-      url: url,
+      url: sanitizeMapsUrl(url),
       source: "行きたいリスト",
       publishTime: "",
       updateTime: "",
@@ -2240,7 +2253,7 @@ function buildManualPlaceFields(input) {
     category: classifyCategory(input.name, comment),
     rating: input.rating || null,
     comment: comment,
-    url: input.url || "",
+    url: sanitizeMapsUrl(input.url || ""),
     publishTime: input.publishTime || "",
     updateTime: input.publishTime || "",
     // 「行ってみたい」チェックボックス（2026-07-28実装）。編集時はチェック状態がそのまま
@@ -2866,7 +2879,7 @@ function parseGeminiLocationResponse(text) {
     .filter(item => item && typeof item.id === "string")
     .map(item => {
       const result = { id: item.id };
-      if (typeof item.url === "string" && item.url.trim()) result.url = item.url.trim();
+      if (typeof item.url === "string" && item.url.trim()) result.url = sanitizeMapsUrl(item.url);
       if (typeof item.lat === "number" && typeof item.lng === "number"
         && item.lat >= -90 && item.lat <= 90 && item.lng >= -180 && item.lng <= 180) {
         result.lat = item.lat;
@@ -3146,7 +3159,7 @@ function appendGoogleMapsLinkButton(actionsEl, spot) {
   if (!spot.url) return;
   const linkBtn = document.createElement("a");
   linkBtn.className = "btn";
-  linkBtn.href = spot.url;
+  linkBtn.href = sanitizeMapsUrl(spot.url);
   linkBtn.target = "_blank";
   linkBtn.rel = "noopener noreferrer";
   linkBtn.textContent = "Googleマップで開く";
@@ -3255,7 +3268,7 @@ function saveLocationReviewManualFix(id, { address, url, coordsText }) {
   if (!place) return { success: false, error: "スポットが見つかりませんでした。" };
 
   const trimmedAddress = (address || "").trim();
-  const trimmedUrl = (url || "").trim();
+  const trimmedUrl = sanitizeMapsUrl(url || "");
   const trimmedCoords = (coordsText || "").trim();
 
   let coords = null;
@@ -3312,7 +3325,7 @@ function appendLocationReviewManualFixForm(itemEl, actionsEl, spot) {
   urlInput.type = "text";
   urlInput.className = "search-input";
   urlInput.placeholder = "Googleマップのリンク";
-  urlInput.value = spot.url || "";
+  urlInput.value = sanitizeMapsUrl(spot.url || "");
   form.appendChild(urlInput);
 
   const coordsInput = document.createElement("input");
@@ -4193,7 +4206,7 @@ function renderTable(filteredList) {
     const wishlistFulfilled = p.wishlistListName && (p.rating != null || p.comment);
     nameTd.innerHTML = `
       <div class="cell-scrollable">
-        ${p.url ? `<a href="${p.url}" target="_blank" class="maps-link-btn" title="Googleマップで開く"><i data-lucide="external-link" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;display:inline-block;"></i></a>` : ''}
+        ${p.url ? `<a href="${sanitizeMapsUrl(p.url)}" target="_blank" class="maps-link-btn" title="Googleマップで開く"><i data-lucide="external-link" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;display:inline-block;"></i></a>` : ''}
         <span title="${p.name}">${p.name}</span>
         ${wishlistFulfilled ? `<i data-lucide="badge-check" class="wishlist-fulfilled-badge" title="「${p.wishlistListName}」リストにあった場所に実際に行きました"></i>` : ''}
       </div>
@@ -4487,7 +4500,7 @@ function renderMapMarkers(filteredList) {
         </div>
         ${p.rating ? `<div class="rating-stars">${"★".repeat(p.rating)}${"☆".repeat(5 - p.rating)}</div>` : ''}
         ${p.comment ? `<div class="map-popup-comment" title="${p.comment}">"${p.comment}"</div>` : ''}
-        ${p.url ? `<a href="${p.url}" target="_blank" class="map-popup-link"><i data-lucide="external-link" style="width:12px;height:12px;vertical-align:middle;display:inline-block;"></i> Googleマップで見る</a>` : ''}
+        ${p.url ? `<a href="${sanitizeMapsUrl(p.url)}" target="_blank" class="map-popup-link"><i data-lucide="external-link" style="width:12px;height:12px;vertical-align:middle;display:inline-block;"></i> Googleマップで見る</a>` : ''}
       </div>
     `;
 
