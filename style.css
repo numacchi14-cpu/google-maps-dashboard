@@ -1503,6 +1503,121 @@ tr:hover td {
   overflow-y: auto;
 }
 
+/* 表形式など横幅を要するモーダル向けの広めのバリアント */
+.modal-card-wide {
+  max-width: 900px;
+}
+
+/* カテゴリーのクロス集計（Google連動×マイカテゴリー、2026-08-11実装）。
+   縦横どちらも件数次第で長くなるため、独自のスクロール領域を持たせて
+   ヘッダー行・見出し列をsticky固定する（.gemini-cat-result-listと同様、
+   .modal-card自体の高さに収まる想定でmax-heightを抑えているので、実運用では
+   こちらの内側スクロールだけが働き、外側との二重スクロールにはならない）。 */
+.crosstab-table-wrapper {
+  overflow: auto;
+  max-height: 60vh;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+}
+
+.crosstab-table {
+  width: auto;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.crosstab-table th,
+.crosstab-table td {
+  padding: 0.6rem 0.9rem;
+  border-bottom: 1px solid var(--border-color);
+  border-right: 1px solid var(--border-color);
+  text-align: center;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.crosstab-table thead th {
+  position: sticky;
+  top: 0;
+  background: rgb(17, 24, 39);
+  color: var(--text-secondary);
+  font-weight: 600;
+  z-index: 2;
+}
+
+.crosstab-corner {
+  position: sticky;
+  left: 0;
+  top: 0;
+  z-index: 3;
+  text-align: left;
+  color: var(--text-secondary);
+}
+
+.crosstab-row-header {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: rgb(17, 24, 39);
+  text-align: left;
+  color: var(--text-primary);
+}
+
+.crosstab-cell-zero {
+  color: var(--text-secondary);
+  opacity: 0.35;
+}
+
+.crosstab-cell-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.crosstab-cell-btn:hover {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--accent-primary);
+}
+
+/* その行で最多のマイカテゴリー（多数派）の目印。多数決の結果を示すだけで、
+   他のセルを「間違い」と断定するものではない（つけ間違いかどうかは利用者が判断する）。 */
+.crosstab-cell-majority {
+  background: rgba(16, 185, 129, 0.14);
+}
+
+.crosstab-cell-majority:hover {
+  background: rgba(16, 185, 129, 0.24);
+}
+
+/* マイカテゴリー未設定行への「推定候補」ボタン（2026-08-11実装）。同じGoogle連動
+   カテゴリーで既にマイカテゴリーを設定済みの行の実績から多数派を推定し、まだ
+   手をつけていない行に控えめな候補として提示する。クリックでそのまま採用する。 */
+.mycat-suggest-btn {
+  display: block;
+  margin-top: 0.35rem;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.72rem;
+  border-radius: 999px;
+  border: 1px dashed var(--accent-primary);
+  background: rgba(59, 130, 246, 0.08);
+  color: var(--accent-primary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.mycat-suggest-btn:hover {
+  background: rgba(59, 130, 246, 0.2);
+}
+
 /* SNSシェア画像モーダル（2026-08-10実装） */
 .share-card-format-toggle {
   align-self: flex-start;

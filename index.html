@@ -131,6 +131,9 @@
                 <button class="btn" id="btn-category-settings" type="button">
                   <i data-lucide="settings"></i> マイカテゴリー設定
                 </button>
+                <button class="btn" id="btn-category-crosstab" type="button">
+                  <i data-lucide="grid-3x3"></i> カテゴリーのクロス集計
+                </button>
                 <button class="btn" id="btn-export-csv">
                   <i data-lucide="download"></i> CSVエクスポート
                 </button>
@@ -741,6 +744,23 @@
         内容を確認し、不要な方（例: 移転前の古い住所）を「削除」してください（削除しても「削除済みスポット」から復元できます）。
       </p>
       <div id="duplicate-candidates-list" class="unknown-spot-list"></div>
+    </div>
+  </div>
+
+  <!-- カテゴリーのクロス集計 Modal（Google連動カテゴリー×マイカテゴリーの件数を突き合わせて、
+       つけ間違いの可能性がある組み合わせを見つけるための集計表。2026-08-11実装） -->
+  <div class="modal-overlay" id="category-crosstab-overlay">
+    <div class="glass-card modal-card modal-card-wide">
+      <div class="card-header">
+        <h3 class="card-title"><i data-lucide="grid-3x3"></i> カテゴリーのクロス集計</h3>
+        <button class="modal-close-btn" id="category-crosstab-close" type="button" aria-label="閉じる">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <p class="modal-desc">
+        縦がGoogle連動カテゴリー、横がマイカテゴリーの件数です。同じGoogle連動カテゴリーの行で件数が複数のマイカテゴリーに割れている場合、つけ間違いの可能性があります（緑色のセルは、その行で最も多いマイカテゴリーの目印です）。件数をクリックすると、その組み合わせだけをスポット一覧で確認できます。
+      </p>
+      <div id="category-crosstab-table-wrapper" class="crosstab-table-wrapper"></div>
     </div>
   </div>
 

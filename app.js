@@ -454,6 +454,9 @@ function setupEventListeners() {
   const btnDuplicateCandidates = document.getElementById("btn-duplicate-candidates");
   const duplicateCandidatesOverlay = document.getElementById("duplicate-candidates-overlay");
   const duplicateCandidatesClose = document.getElementById("duplicate-candidates-close");
+  const btnCategoryCrosstab = document.getElementById("btn-category-crosstab");
+  const categoryCrosstabOverlay = document.getElementById("category-crosstab-overlay");
+  const categoryCrosstabClose = document.getElementById("category-crosstab-close");
   const paginationPrev = document.getElementById("pagination-prev");
   const paginationNext = document.getElementById("pagination-next");
 
@@ -842,6 +845,13 @@ function setupEventListeners() {
   duplicateCandidatesClose.addEventListener("click", closeDuplicateCandidatesModal);
   duplicateCandidatesOverlay.addEventListener("click", (e) => {
     if (e.target === duplicateCandidatesOverlay) closeDuplicateCandidatesModal();
+  });
+
+  // カテゴリーのクロス集計（Google連動×マイカテゴリーの件数を突き合わせてつけ間違いを探す）
+  btnCategoryCrosstab.addEventListener("click", openCategoryCrosstabModal);
+  categoryCrosstabClose.addEventListener("click", closeCategoryCrosstabModal);
+  categoryCrosstabOverlay.addEventListener("click", (e) => {
+    if (e.target === categoryCrosstabOverlay) closeCategoryCrosstabModal();
   });
 
   // テーブルのページネーション（実データ量が多い場合の描画負荷対策）
@@ -3506,6 +3516,152 @@ function closeDuplicateCandidatesModal() {
   document.getElementById("duplicate-candidates-overlay").classList.remove("active");
 }
 
+// --- カテゴリーのクロス集計（Google連動×マイカテゴリー、2026-08-11実装）---
+// 「ラーメン店」だけど実は「中華屋」に近い、のようなマイカテゴリーの意図的な
+// 使い分けもあり得る一方、単純なつけ間違いもあり得る。両者はクロス集計で件数を
+// 突き合わせて人が見て判断するのが確実（ユーザーとの合意：都道府県×カテゴリーの
+// クロス集計はCSV+Excel運用に留めているが、こちらは「セルの数字をクリックすると
+// その場でスポット一覧を確認できる」という対話的な絞り込みが目的のため、都道府県の
+// ケースとは別にアプリ内実装する）。
+function buildCategoryCrosstab() {
+  const allCats = getAllCategories();
+  const rowCounts = {};
+  const colCounts = {};
+  const cellCounts = {};
+
+  places.forEach(p => {
+    if (!p.category) return;
+    const colKey = p.myCategory || "__unset__";
+    rowCounts[p.category] = (rowCounts[p.category] || 0) + 1;
+    colCounts[colKey] = (colCounts[colKey] || 0) + 1;
+    const cellKey = `${p.category} ${colKey}`;
+    cellCounts[cellKey] = (cellCounts[cellKey] || 0) + 1;
+  });
+
+  const rows = Object.entries(rowCounts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([key, total]) => ({ key, name: allCats[key]?.name || "その他", total }));
+
+  // 「未設定」列は常に一番右に固定し、比較したいマイカテゴリー同士は件数の多い順に並べる
+  const unsetTotal = colCounts["__unset__"] || 0;
+  const cols = Object.entries(colCounts)
+    .filter(([key]) => key !== "__unset__")
+    .sort((a, b) => b[1] - a[1])
+    .map(([key, total]) => ({ key, name: allCats[key]?.name || "その他", total }));
+  if (unsetTotal > 0) cols.push({ key: "__unset__", name: "未設定", total: unsetTotal });
+
+  return { rows, cols, cellCounts };
+}
+
+function getCrosstabCellCount(cellCounts, rowKey, colKey) {
+  return cellCounts[`${rowKey} ${colKey}`] || 0;
+}
+
+// クロス集計表のセルをクリックした時の絞り込み。一覧側の既存ドロップダウンを
+// そのまま流用するので、絞り込みロジックの二重実装を避けられる。他の絞り込み条件が
+// 残っていると「0件」に見えて混乱するため、この2軸以外は一旦クリアする。
+function applyCategoryCrosstabFilter(googleKey, myKey) {
+  document.getElementById("search-box").value = "";
+  document.getElementById("filter-prefecture").value = "";
+  document.getElementById("filter-category-google").value = googleKey;
+  document.getElementById("filter-category-my").value = myKey;
+  document.getElementById("filter-rating").value = "";
+  document.getElementById("filter-wishlist-list").value = "";
+  document.getElementById("filter-wishlist-fulfilled").checked = false;
+  document.getElementById("filter-date-from").value = "";
+  document.getElementById("filter-date-to").value = "";
+  currentTablePage = 1;
+  setupDropdownFilters();
+  filterAndRender();
+  closeCategoryCrosstabModal();
+  scrollTableToTop();
+}
+
+function renderCategoryCrosstab() {
+  const wrapper = document.getElementById("category-crosstab-table-wrapper");
+  if (!wrapper) return;
+  wrapper.innerHTML = "";
+
+  const { rows, cols, cellCounts } = buildCategoryCrosstab();
+  if (rows.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "unknown-spot-empty";
+    empty.textContent = "集計できるデータがありません。";
+    wrapper.appendChild(empty);
+    return;
+  }
+
+  const table = document.createElement("table");
+  table.className = "crosstab-table";
+
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  const corner = document.createElement("th");
+  corner.className = "crosstab-corner";
+  corner.textContent = "Google連動＼マイカテゴリー";
+  headRow.appendChild(corner);
+  cols.forEach(col => {
+    const th = document.createElement("th");
+    th.textContent = `${col.name} (${col.total})`;
+    headRow.appendChild(th);
+  });
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  rows.forEach(row => {
+    const tr = document.createElement("tr");
+    const rowTh = document.createElement("th");
+    rowTh.className = "crosstab-row-header";
+    rowTh.textContent = `${row.name} (${row.total})`;
+    tr.appendChild(rowTh);
+
+    // その行（Google連動カテゴリー）の中で最多のマイカテゴリーに目印を付ける。
+    // 「未設定」は分類先の候補ではない（単に未着手なだけ）ため対象から除外する
+    // ——含めてしまうと未設定行が多いカテゴリーで常に「未設定」が多数派として
+    // 強調され、本来見たい「実際についているマイカテゴリーの中での多数派」が
+    // 埋もれてしまう。
+    let maxCount = 0;
+    cols.forEach(col => {
+      if (col.key === "__unset__") return;
+      const count = getCrosstabCellCount(cellCounts, row.key, col.key);
+      if (count > maxCount) maxCount = count;
+    });
+
+    cols.forEach(col => {
+      const td = document.createElement("td");
+      const count = getCrosstabCellCount(cellCounts, row.key, col.key);
+      if (count === 0) {
+        td.textContent = "";
+        td.className = "crosstab-cell-zero";
+      } else {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "crosstab-cell-btn";
+        if (count === maxCount) btn.classList.add("crosstab-cell-majority");
+        btn.textContent = count;
+        btn.title = `${row.name} × ${col.name}：${count}件をスポット一覧で確認`;
+        btn.addEventListener("click", () => applyCategoryCrosstabFilter(row.key, col.key));
+        td.appendChild(btn);
+      }
+      tr.appendChild(td);
+    });
+
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  wrapper.appendChild(table);
+}
+
+function openCategoryCrosstabModal() {
+  renderCategoryCrosstab();
+  document.getElementById("category-crosstab-overlay").classList.add("active");
+}
+
+function closeCategoryCrosstabModal() {
+  document.getElementById("category-crosstab-overlay").classList.remove("active");
+}
+
 // --- スポット情報のGemini検索（手動追加の補助、2026-07-24実装）---
 // Takeoutの600件上限等で漏れた古いクチコミを手動で追加する際、正式名称・住所・
 // 緯度経度・カテゴリーをうろ覚えの情報（都道府県+店名など）からGeminiに検索して
@@ -4156,6 +4312,34 @@ function scrollTableToTop() {
   if (card) card.scrollIntoView({ block: "start" });
 }
 
+// マイカテゴリー未設定行への「推定候補」（2026-08-11実装）。同じGoogle連動カテゴリーで
+// 既にマイカテゴリーを手動設定済みの行の実績から多数派を集計し、まだ未設定の行に
+// 「〇〇かも？」という控えめな候補を出す（クロス集計表でのつけ間違い探しと対になる機能：
+// あちらは「既についているものの矛盾」を見つけ、こちらは「まだついていないもの」を後押しする）。
+// 票数が少ない/僅差の場合は思い込みを招くため候補を出さない。
+const MY_CATEGORY_SUGGESTION_MIN_VOTES = 2;
+
+function computeMyCategorySuggestions() {
+  const votesByGoogleCat = {};
+  places.forEach(p => {
+    if (!p.category || !p.myCategory) return;
+    if (!votesByGoogleCat[p.category]) votesByGoogleCat[p.category] = {};
+    votesByGoogleCat[p.category][p.myCategory] = (votesByGoogleCat[p.category][p.myCategory] || 0) + 1;
+  });
+
+  const suggestions = {};
+  Object.entries(votesByGoogleCat).forEach(([googleKey, votes]) => {
+    const sorted = Object.entries(votes).sort((a, b) => b[1] - a[1]);
+    const [topKey, topCount] = sorted[0];
+    const runnerUpCount = sorted[1] ? sorted[1][1] : 0;
+    // 僅差（同数首位）は根拠が弱いため候補を出さない
+    if (topCount >= MY_CATEGORY_SUGGESTION_MIN_VOTES && topCount > runnerUpCount) {
+      suggestions[googleKey] = topKey;
+    }
+  });
+  return suggestions;
+}
+
 // Render Places Table
 function renderTable(filteredList) {
   const tbody = document.getElementById("places-table-body");
@@ -4169,6 +4353,9 @@ function renderTable(filteredList) {
     return;
   }
   emptyState.style.display = "none";
+
+  // マイカテゴリー未設定行への推定候補（現在のページ分だけでなく、全件の実績から集計する）
+  const myCategorySuggestions = computeMyCategorySuggestions();
 
   // ページネーション（50件区切り）：絞り込み結果全体ではなく、このページ分だけを描画する。
   // ページ番号は絞り込み・並び替えが変わるとfilterAndRenderFromPage1側で1に戻すが、
@@ -4339,6 +4526,26 @@ function renderTable(filteredList) {
     });
     myCatCellInner.appendChild(myCatSelect);
     myCatTd.appendChild(myCatCellInner);
+
+    // 未設定行にのみ、過去の実績から推定した候補を控えめに提示する（クリックでそのまま採用）
+    if (!p.myCategory) {
+      const suggestedKey = myCategorySuggestions[p.category];
+      if (suggestedKey) {
+        const suggestedName = getAllCategories()[suggestedKey]?.name || "";
+        const suggestBtn = document.createElement("button");
+        suggestBtn.type = "button";
+        suggestBtn.className = "mycat-suggest-btn";
+        suggestBtn.textContent = `${suggestedName}かも？`;
+        suggestBtn.title = `過去の実績：「${getAllCategories()[p.category]?.name || ""}」の多くは「${suggestedName}」に分類されています。クリックで採用します。`;
+        suggestBtn.addEventListener("click", () => {
+          p.myCategory = suggestedKey;
+          markUnsavedChanges();
+          setupDropdownFilters();
+          filterAndRender();
+        });
+        myCatTd.appendChild(suggestBtn);
+      }
+    }
 
     // Address Column
     const addrTd = document.createElement("td");
