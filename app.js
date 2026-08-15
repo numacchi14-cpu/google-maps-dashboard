@@ -234,6 +234,11 @@ document.addEventListener("DOMContentLoaded", () => {
   updateLocalCacheToggleUI();
   restoreFromLocalCache();
 
+  // If a still-valid Drive access token was cached from an earlier session,
+  // reconnect silently instead of making the user click "connect" again —
+  // fire-and-forget, same pattern as restoreFromLocalCache above.
+  restoreDriveSession();
+
   // Warn before an accidental tab close/reload throws away unsaved edits —
   // Drive save / JSON export are the only real backups (the local cache above
   // is device-local convenience, not a substitute — see hasUnsavedChanges
@@ -5739,13 +5744,21 @@ function handleLocalCacheToggleChange(enabled) {
 // --- Google Drive Sync (Phase 2) ---
 // Uses Google Identity Services' implicit token client (drive.file scope only,
 // so this app can only see/edit files it created itself). No refresh token —
-// the access token lives for this browser session only; reconnecting is a
-// single click. Data is stored as one JSON file (the same shape exportJSON
+// there's no backend to hold a client_secret, so a real offline-access flow
+// isn't available. Instead the access token + its expiry are cached in
+// localStorage (see saveDriveTokenToStorage/loadDriveTokenFromStorage below)
+// so a reload within the token's ~1hr lifetime doesn't require re-clicking
+// "connect". Data is stored as one JSON file (the same shape exportJSON
 // produces), found each time by name rather than a remembered ID, since the
 // spec's simple conflict policy is "always fetch Drive's latest on open".
 const GOOGLE_DRIVE_CLIENT_ID = "536328866896-9h97ik12fo3usbu37chanu190emra4ep.apps.googleusercontent.com";
 const GOOGLE_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const DRIVE_BACKUP_FILE_NAME = "g-map-dashboard-backup.json";
+const DRIVE_TOKEN_STORAGE_KEY = "driveAccessToken";
+const DRIVE_TOKEN_EXPIRY_STORAGE_KEY = "driveAccessTokenExpiresAt";
+// Treat a token as expired slightly before Google actually expires it, so we
+// don't attempt a Drive call with a token that dies mid-request.
+const DRIVE_TOKEN_EXPIRY_BUFFER_MS = 60 * 1000;
 
 let driveTokenClient = null;
 let driveAccessToken = null;
@@ -5754,6 +5767,59 @@ let driveFileId = null; // set once the backup file is found or first created
 // or saved it. Used only as a cheap "has someone else saved since I last knew
 // the state?" check before overwriting — not a real merge (see saveToDrive).
 let driveKnownModifiedTime = null;
+
+// localStorage can throw (private browsing, storage disabled) — treat any
+// failure here as "persistence unavailable" and silently fall back to the
+// previous session-only behavior rather than breaking the connect flow.
+function saveDriveTokenToStorage(accessToken, expiresInSeconds) {
+  try {
+    localStorage.setItem(DRIVE_TOKEN_STORAGE_KEY, accessToken);
+    localStorage.setItem(DRIVE_TOKEN_EXPIRY_STORAGE_KEY, String(Date.now() + expiresInSeconds * 1000));
+  } catch (e) {
+    console.warn("Could not persist Drive token:", e);
+  }
+}
+
+function loadDriveTokenFromStorage() {
+  try {
+    const token = localStorage.getItem(DRIVE_TOKEN_STORAGE_KEY);
+    const expiresAt = Number(localStorage.getItem(DRIVE_TOKEN_EXPIRY_STORAGE_KEY));
+    if (!token || !expiresAt || Date.now() + DRIVE_TOKEN_EXPIRY_BUFFER_MS >= expiresAt) {
+      return null;
+    }
+    return token;
+  } catch (e) {
+    return null;
+  }
+}
+
+function clearDriveTokenStorage() {
+  try {
+    localStorage.removeItem(DRIVE_TOKEN_STORAGE_KEY);
+    localStorage.removeItem(DRIVE_TOKEN_EXPIRY_STORAGE_KEY);
+  } catch (e) {
+    // Nothing to clean up if storage isn't available in the first place.
+  }
+}
+
+// Thrown by driveFetch on a 401 so callers can tell "token expired mid-use"
+// apart from other failures without re-checking response status everywhere.
+class DriveAuthExpiredError extends Error {}
+
+// Drive API calls all go through here so token expiry is handled in one
+// place: reset the connection state and storage, and surface a message that
+// tells the user this is a re-auth, not a generic network failure.
+async function driveFetch(url, options) {
+  const res = await fetch(url, options);
+  if (res.status === 401) {
+    driveAccessToken = null;
+    clearDriveTokenStorage();
+    updateDriveConnectionUI(false);
+    setDriveSyncStatus("Googleドライブとの連携の有効期限が切れました。「Googleドライブと連携」から再度お試しください。", true);
+    throw new DriveAuthExpiredError("Drive access token expired");
+  }
+  return res;
+}
 
 function getDriveTokenClient() {
   if (driveTokenClient) return driveTokenClient;
@@ -5801,11 +5867,24 @@ function connectGoogleDrive() {
       return;
     }
     driveAccessToken = resp.access_token;
+    saveDriveTokenToStorage(resp.access_token, resp.expires_in);
     updateDriveConnectionUI(true);
     await loadFromDrive();
   };
   // Skip the consent prompt on token refresh within the same session.
   client.requestAccessToken({ prompt: driveAccessToken ? "" : "consent" });
+}
+
+// Called once on page load: if a still-valid access token was cached from an
+// earlier session, reuse it instead of making the user click "connect"
+// again. Silently no-ops if there's nothing cached or it's already expired —
+// the manual connect button remains the fallback either way.
+async function restoreDriveSession() {
+  const token = loadDriveTokenFromStorage();
+  if (!token) return;
+  driveAccessToken = token;
+  updateDriveConnectionUI(true);
+  await loadFromDrive();
 }
 
 // Finds this app's backup file on Drive (by name, since drive.file scope
@@ -5818,7 +5897,7 @@ async function loadFromDrive() {
     const listUrl = "https://www.googleapis.com/drive/v3/files"
       + `?q=${encodeURIComponent(`name='${DRIVE_BACKUP_FILE_NAME}' and trashed=false`)}`
       + "&spaces=drive&fields=files(id,name,modifiedTime)";
-    const listRes = await fetch(listUrl, {
+    const listRes = await driveFetch(listUrl, {
       headers: { Authorization: `Bearer ${driveAccessToken}` }
     });
     if (!listRes.ok) throw new Error(`Drive list failed: ${listRes.status}`);
@@ -5834,7 +5913,7 @@ async function loadFromDrive() {
     driveFileId = existing.id;
     driveKnownModifiedTime = existing.modifiedTime;
 
-    const fileRes = await fetch(
+    const fileRes = await driveFetch(
       `https://www.googleapis.com/drive/v3/files/${existing.id}?alt=media`,
       { headers: { Authorization: `Bearer ${driveAccessToken}` } }
     );
@@ -5856,6 +5935,7 @@ async function loadFromDrive() {
     const modified = existing.modifiedTime ? new Date(existing.modifiedTime).toLocaleString("ja-JP") : "不明";
     setDriveSyncStatus(`Driveの最新データを読み込みました（保存日時: ${modified}）`);
   } catch (e) {
+    if (e instanceof DriveAuthExpiredError) return; // driveFetch already set the status message
     console.error("Drive load error:", e);
     setDriveSyncStatus("Driveからの読み込みに失敗しました。時間を置いて再度お試しください。", true);
   }
@@ -5864,7 +5944,7 @@ async function loadFromDrive() {
 // Fetches just the modifiedTime of a Drive file (no content download) — cheap
 // enough to call right before every save as a conflict check.
 async function fetchDriveModifiedTime(fileId) {
-  const res = await fetch(
+  const res = await driveFetch(
     `https://www.googleapis.com/drive/v3/files/${fileId}?fields=modifiedTime`,
     { headers: { Authorization: `Bearer ${driveAccessToken}` } }
   );
@@ -5926,7 +6006,7 @@ async function saveToDrive() {
       ? `https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=multipart&fields=id,modifiedTime`
       : "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,modifiedTime";
 
-    const res = await fetch(url, {
+    const res = await driveFetch(url, {
       method: driveFileId ? "PATCH" : "POST",
       headers: {
         Authorization: `Bearer ${driveAccessToken}`,
@@ -5941,6 +6021,7 @@ async function saveToDrive() {
     clearUnsavedChanges();
     setDriveSyncStatus(`Driveに保存しました（${new Date().toLocaleString("ja-JP")}）`);
   } catch (e) {
+    if (e instanceof DriveAuthExpiredError) return; // driveFetch already set the status message
     console.error("Drive save error:", e);
     setDriveSyncStatus("Driveへの保存に失敗しました。時間を置いて再度お試しください。", true);
   }
