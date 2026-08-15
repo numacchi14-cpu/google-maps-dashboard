@@ -267,8 +267,9 @@ Google Takeout でエクスポートした「保存済みの場所」「クチ�
 - ヘッダー常時表示（アップロード前でも操作可能）の「Googleドライブと連携」ボタンから、Google Identity Services（GIS）のimplicitトークンクライアントでOAuth認可。スコープは`drive.file`（このアプリが作成したファイルのみアクセス可）に限定
 - 連携が成功すると自動的にDrive上の保存データ（固定ファイル名`g-map-dashboard-backup.json`）を検索・読み込み。既存の`parseAppBackupJSON`＋`deduplicatePlaces`を経由してローカルの`places`にマージするため、ファイルインポートと同じ「既存の手動編集を上書きしない」安全性が保たれる
 - 「Driveに保存」ボタン（連携後のみ表示）で、JSONエクスポートと全く同じデータ構造（`buildBackupJSONPayload`。エクスポート用と共通化済み）をDriveへアップロード。初回は新規作成（POST）、2回目以降は同じファイルを更新（PATCH、`driveFileId`で追跡）
-- アクセストークンはブラウザメモリ上のみ（`driveAccessToken`）。ページをリロードすると失われ、再度「連携」ボタンを押す必要がある
-  - **トークン永続化は見送り（フェーズ3実装時に検討し、対象外と判断・2026-07-25）**：フェーズ3（ローカルキャッシュ）と合わせて検討予定としていたが、実装時に見送りを決定。使用しているGoogle Identity Services（GIS）のimplicitトークンフローにはrefresh tokenが無く、有効期限（約1時間）内の再クリックを省略できる程度のメリットしかない一方、生きたOAuthアクセストークンをブラウザストレージに残すことは閲覧データ自体を残すより実質的にリスクが高いと判断したため。ローカルキャッシュ自体（`places`データのIndexedDB保存）は実装済み（4節参照）だが、これはDriveのアクセストークンとは別物
+- アクセストークンは`localStorage`に有効期限付きで保存し、有効期限内（約1時間）ならページをリロードしても再度「連携」ボタンを押さずに自動復元される（`saveDriveTokenToStorage`/`loadDriveTokenFromStorage`/`restoreDriveSession`、2026-08-15実装）。Drive APIが401（失効）を返した場合は`driveFetch`が自動でトークンを破棄し、未連携表示に戻す
+  - **トークン永続化は当初見送り（フェーズ3実装時に検討し、対象外と判断・2026-07-25）**：使用しているGoogle Identity Services（GIS）のimplicitトークンフローにはrefresh tokenが無く、有効期限内の再クリックを省略できる程度のメリットしかない一方、生きたOAuthアクセストークンをブラウザストレージに残すことは実質的にリスクが高いと判断したため
+  - **2026-08-15に方針転換し実装**：「毎回クリックが面倒」という実運用上の不便の方を優先すべきと判断（`drive.file`スコープ限定でアクセス範囲は元々狭いことも踏まえた再判断）。バックエンド追加によるrefresh token方式（worklog-aiと同様の本格対応）は費用対効果が悪いと判断し見送り、localStorageへのaccess_token＋有効期限キャッシュのみの軽量対応とした。詳細は下記「Driveアクセストークンの永続化（2026-08-15追加実装）」参照
 - 複数端末の同時編集は想定せず、「開いたら毎回Driveの最新を取得して上書き」という単純な方針（5節参照）
 
 ## 3. データモデル（1件あたり）
@@ -511,7 +512,7 @@ Google Takeout でエクスポートした「保存済みの場所」「クチ�
 |---|---|---|
 | 1 | 認証・同期に依存しないロジック追加（マイカテゴリー/マイ都道府県の2軸分離、Geminiプロンプト機能、Takeoutボタン、クチコミ→Googleマップ遷移、リセット前バックアップ、クチコミ手動追加・編集、日付範囲フィルター、分類ロジックのテスト、モバイル一覧のカード化） | Takeoutボタン／クチコミ地図遷移／リセット前バックアップ（＋復元バグ修正）／分類テスト／モバイルカード化／マイカテゴリー・マイ都道府県2軸分離／クチコミ手動追加・編集（CSV一括編集込み）／日付範囲フィルター／Google連動カテゴリーのGeminiプロンプト方式取得（生ラベルそのまま使用に方式転換込み）／一覧のGoogle連動・マイカテゴリー2列表示／カテゴリー比率チャートの軸切り替え／都道府県自動判定の店名誤判定バグ修正は完了（2026-07-20〜21）。残: Google連動カテゴリーのGoogle Places API方式（bの代替案a、未着手・優先度低） |
 | 2 | Google Drive連携（OAuth、保存・読み込み） | 完了（2026-07-24）。本番URL（GitHub Pages）で連携→保存→別セッションでの連携→読み込みまで実機確認済み |
-| 3 | オフラインキャッシュ設計（IndexedDB、端末ごとのON/OFF設定） | 完了（2026-07-25）。Driveアクセストークンの永続化は見送り（詳細は2.5節） |
+| 3 | オフラインキャッシュ設計（IndexedDB、端末ごとのON/OFF設定） | 完了（2026-07-25）。Driveアクセストークンの永続化は当初見送りだったが、2026-08-15に方針転換し実装（詳細は2.5節） |
 | 4 | PWA本実装（マニフェスト＋Service Worker） | インストール可能化のみ完了（2026-07-26）。フルオフライン対応（CDN依存の解消）は未着手 |
 
 **Google Drive連携（フェーズ2）実装状況（2026-07-24）**
@@ -519,17 +520,23 @@ Google Takeout でエクスポートした「保存済みの場所」「クチ�
 - コード側のOAuth連携（Google Identity Services導入、トークン取得、Drive REST APIでの保存/読み込み）を実装済み：
   - `index.html`：`<script src="https://accounts.google.com/gsi/client">` を追加。ヘッダーに常時表示の`#drive-sync`ブロック（「Googleドライブと連携」ボタン／未連携時は非表示の「Driveに保存」ボタン／ステータステキスト）を新設。アップロード前でも押せる位置に配置し、連携直後にDrive上の既存データを読み込めるようにしている
   - `app.js`：GISのimplicitトークンクライアント（`getDriveTokenClient`/`connectGoogleDrive`）でdrive.fileスコープのアクセストークンを取得。`loadFromDrive`はファイル名`g-map-dashboard-backup.json`をDrive内で検索→`alt=media`で取得→既存の`parseAppBackupJSON`＋`deduplicatePlaces`経由でローカルの`places`にマージ（ファイルインポートと同じ安全なマージ経路を再利用し、ローカルの未保存編集を上書きしない）。`saveToDrive`はJSONバックアップと全く同じ構造（`buildBackupJSONPayload`——`exportJSON`用の生成処理を共通関数として切り出し）をmultipart uploadでDriveへ作成/更新（`driveFileId`があればPATCH、なければPOST）
-  - アクセストークンはメモリ上のみ（`driveAccessToken`）、リロードで消える想定通りの挙動（フェーズ3実装時に永続化を検討したが見送り。理由は2.5節）
+  - アクセストークンはメモリ上のみ（`driveAccessToken`）、リロードで消える想定通りの挙動（フェーズ3実装時に永続化を検討したが見送り。理由は2.5節。→2026-08-15にlocalStorage永続化を追加実装、詳細は下記）
   - 動作確認：`node --check`・既存テスト62件はパス。ローカルdevサーバー＋Playwrightでページ読み込み・サンプルデータ表示・ヘッダーUIの見た目とコンソールエラー無しを確認済み
   - **本番URLでの実機確認も完了**（2026-07-24）：コミット・push→GitHub Pagesへ自動デプロイ→「連携」→「保存」→別ブラウザ（シークレットウィンドウ）で「連携」→自動読み込み、まで一連の動作を確認済み
     - 途中、保存時に403エラーが発生。原因はGoogle Cloud Consoleで**Drive APIそのものが未有効化**だったこと（OAuthクライアント登録・スコープ設定とは別に、「APIとサービス」→「有効なAPIとサービス」でGoogle Drive API自体を明示的に有効化する必要がある）。有効化後は問題なく保存・読み込みとも成功
 - 残タスク：
   - Google連動カテゴリーのPlaces API方式（選択肢a）は引き続き後回し（優先度低、合意済み）
 
+**Driveアクセストークンの永続化（2026-08-15追加実装）**
+- 経緯：worklog-ai（別プロジェクト。サーバー側でrefresh tokenを保持しログインを維持する設計）との仕様比較の相談から着手。バックエンド・DB・セッション管理一式を追加する本格対応（refresh token方式）は、MAPDATAが個人利用寄りの静的サイト構成であることを踏まえると費用対効果が悪いと判断し、localStorageへのaccess_token＋有効期限キャッシュのみの軽量対応で合意
+- 実装：`saveDriveTokenToStorage`/`loadDriveTokenFromStorage`/`clearDriveTokenStorage`でlocalStorageに`access_token`と有効期限（`expires_in`から算出）を保存。`restoreDriveSession`を`DOMContentLoaded`（`restoreFromLocalCache`と同じfire-and-forgetパターン）に追加し、有効なトークンが残っていれば自動で連携済み状態に復元して`loadFromDrive`を実行。Drive APIへの全呼び出し（一覧取得・ファイル取得・保存）を`driveFetch`ラッパー経由に統一し、401（トークン失効）時は自動でlocalStorageをクリア・未連携表示に戻し・再連携を促すメッセージを表示
+- 動作確認：`node --check`はパス。ローカル簡易サーバー（`static-server`）でlocalStorageに有効/無効なダミートークンを直接セットしてリロードする形で、リストア動作と401失効時のフォールバックをシミュレーション確認。実際のOAuthフローはlocalhostがGoogle Cloud Consoleの承認済みJavaScript生成元に未登録のため`origin_mismatch`となり確認不可 → 本番URL（`spots.num-ish.com`）へpush（コミット`9531938`）した上で、ユーザーが実機のGoogleアカウントで連携→リロード→自動復元の動作を確認（ユーザー確認：「OKと思う」）
+- スコープ・プライバシー方針は変更なし（`drive.file`スコープのまま、氏名・メールアドレス等は引き続き取得しない）
+
 **フェーズ3（ローカルオフラインキャッシュ）実装状況（2026-07-25）**
 - 完了：IndexedDB（`g-map-dashboard-cache`、単一オブジェクトストア・単一レコード）に`places`一式をキャッシュし、次回起動時に自動復元する仕組みを実装。詳細・設計判断は4節「状態は基本メモリ上のみ、ただしローカルキャッシュ（IndexedDB）で継続可能に」を参照
 - ヘッダーの「Googleドライブと連携」ボタン群の隣に「このデバイスにデータを保存」トグル（初期値ON）を追加（`index.html`の`#drive-sync`ブロック内、新規モーダルは作らず既存の常時表示ボタン群に統合）
-- Driveアクセストークンの永続化は、このフェーズで検討した上で見送り（2.5節に理由を記載）。フェーズ3は「アプリデータのローカル継続」のみを実装し、「Drive連携状態の継続」は引き続き毎回「連携」ボタンを押す運用のまま
+- Driveアクセストークンの永続化は、このフェーズで検討した上で見送り（2.5節に理由を記載）。フェーズ3は「アプリデータのローカル継続」のみを実装し、「Drive連携状態の継続」は引き続き毎回「連携」ボタンを押す運用のまま（→2026-08-15にトークン永続化も追加実装。詳細は2.5節・上記「Driveアクセストークンの永続化（2026-08-15追加実装）」参照）
 - 動作確認：`node --check`・`npm test`（100件）はパス。IndexedDB/localStorage部分はブラウザAPI依存でNode側のユニットテストが難しいため（Drive連携自体も同様の理由でユニットテスト無し）、純粋ロジック部分（`shouldScheduleLocalCacheWrite`）のみ`tests/localCache.test.js`でカバーし、実際の永続化挙動（トグルON/OFF、リロード後の復元、リセット時のキャッシュ削除、IndexedDB不可環境でのフォールバック）はブラウザ実機での確認が必要
 - 残タスク：フェーズ4（PWA本実装）は未着手のまま
 
